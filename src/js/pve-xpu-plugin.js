@@ -1544,8 +1544,12 @@ Ext.define('PVE.panel.XpuSriovPanel', {
             deviceRecord: me.deviceRecord
         });
         dlg.on('vfsmodified', function() {
-            me.reloadVfs();
-            me.fireEvent('vfschanged', me);
+            // Delay reload to let sysfs settle after VF count change
+            Ext.defer(function() {
+                me.reloadVfs();
+                me.reloadSriov();
+                me.fireEvent('vfschanged', me);
+            }, 2000);
         });
         dlg.show();
         // Load current VF data from the grid store
