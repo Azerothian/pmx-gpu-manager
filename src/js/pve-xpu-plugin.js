@@ -1327,9 +1327,8 @@ Ext.define('PVE.window.ModifyVfsDialog', {
         if (newNumVfs === 0 && currentNumVfs > 0) {
             // Remove all VFs
             Proxmox.Utils.API2Request({
-                url: baseUrl,
+                url: baseUrl + '?remove_persist=1',
                 method: 'DELETE',
-                params: { remove_persist: persist ? 0 : 1 },
                 success: function() {
                     me.setLoading(false);
                     me.close();
