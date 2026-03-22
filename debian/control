@@ -1,0 +1,14 @@
+Source: pve-xpu-manager
+Section: admin
+Priority: optional
+Maintainer: PVE XPU Manager <pve-xpu@localhost>
+Build-Depends: debhelper (>= 12)
+Standards-Version: 4.5.1
+
+Package: pve-xpu-manager
+Architecture: all
+Depends: pve-manager (>= 8.0), perl, libpve-common-perl, pciutils, ${misc:Depends}
+Description: Intel XPU/GPU Manager for Proxmox VE
+ Provides discovery, monitoring, and SR-IOV virtual function management
+ for Intel discrete GPUs (Flex/ATS-M, Ponte Vecchio, Battlemage) in
+ Proxmox VE. Includes a web UI tab, REST API, and boot persistence.

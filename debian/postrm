@@ -1,0 +1,43 @@
+#!/bin/sh
+# postrm: purge config and backup files
+set -e
+
+INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
+NODES_PM="/usr/share/perl5/PVE/API2/Nodes.pm"
+
+log() {
+    logger -t pve-xpu-postrm "$@" || true
+    echo "pve-xpu-postrm: $*"
+}
+
+case "$1" in
+    purge)
+        # Remove config files
+        rm -f /etc/pve/local/xpu-sriov.conf
+        rm -f /etc/pve/local/xpu-vf-templates.conf
+        log "Removed config files from /etc/pve/local/"
+
+        # Remove backup files
+        for f in "${INDEX_TPL}.pre-xpu" "${NODES_PM}.pre-xpu"; do
+            if [ -f "$f" ]; then
+                rm -f "$f"
+                log "Removed backup $f"
+            fi
+        done
+
+        # Reload systemd to drop unit file
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload || true
+        fi
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+    *)
+        echo "postrm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

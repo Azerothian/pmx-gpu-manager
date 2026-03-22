@@ -1,0 +1,14 @@
+[global]
+keyboard = "en-us"
+country = "us"
+timezone = "UTC"
+fqdn = "pve-test.local"
+mailto = "root@pve-test.local"
+root_password = "testpassword"
+
+[network]
+source = "from-dhcp"
+
+[disk-setup]
+filesystem = "ext4"
+disk_list = ["vda"]
