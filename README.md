@@ -16,7 +16,7 @@ A Proxmox VE plugin for Intel discrete GPU management with SR-IOV virtual functi
 ## Tested On
 
 - **Proxmox VE 9.1.6** (kernel 6.17.13-2-pve)
-- **Intel Arc B580** (Battlemage G21, device ID 0xe211) -- 2x cards, xe driver, GuC firmware 70.58.0
+- **Intel Arc B60** (Battlemage G21, device ID 0xe211) -- 2x cards, xe driver, GuC firmware 70.58.0
 - SR-IOV with up to 7 VFs per card
 
 ## Supported Hardware
@@ -26,7 +26,7 @@ A Proxmox VE plugin for Intel discrete GPU management with SR-IOV virtual functi
 | Flex (ATS-M) | 0x56c0, 0x56c1, 0x56c2 | 31 | i915 |
 | Ponte Vecchio | 0x0bd4, 0x0bd5, 0x0bd6 | 62 | i915 |
 | Ponte Vecchio Extended | 0x0bda, 0x0bdb, 0x0b6e | 63 | i915 |
-| Battlemage (B580/B570) | 0xe211, 0xe212, 0xe222 | 24 | xe |
+| Battlemage (B60) | 0xe211, 0xe212, 0xe222 | 24 | xe |
 | Battlemage (12VF) | 0xe223 | 12 | xe |
 
 ## Installation
