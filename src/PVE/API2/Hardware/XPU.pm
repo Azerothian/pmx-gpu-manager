@@ -1156,20 +1156,24 @@ __PACKAGE__->register_method({
             }
         }
 
-        # Validate totals for each tile
+        # Validate totals for each tile (only when availability data exists)
         for my $t (0 .. ($tiles - 1)) {
             next unless defined $card && $card ne '';
             my $avail = _read_pf_available($card, $t);
-            if ($lmem_per_vf * $num_vfs > $avail->{lmem_free}) {
+
+            # Skip validation if availability paths don't exist (xe driver / BMG)
+            next if !$avail->{lmem_free} && !$avail->{ggtt_free};
+
+            if ($avail->{lmem_free} && $lmem_per_vf * $num_vfs > $avail->{lmem_free}) {
                 die sprintf(
-                    "lmem request (%d × %d = %d) exceeds available %d on tile %d\n",
+                    "lmem request (%d x %d = %d) exceeds available %d on tile %d\n",
                     $lmem_per_vf, $num_vfs, $lmem_per_vf * $num_vfs,
                     $avail->{lmem_free}, $t
                 );
             }
-            if ($ggtt_per_vf * $num_vfs > $avail->{ggtt_free}) {
+            if ($avail->{ggtt_free} && $ggtt_per_vf * $num_vfs > $avail->{ggtt_free}) {
                 die sprintf(
-                    "ggtt request (%d × %d = %d) exceeds available %d on tile %d\n",
+                    "ggtt request (%d x %d = %d) exceeds available %d on tile %d\n",
                     $ggtt_per_vf, $num_vfs, $ggtt_per_vf * $num_vfs,
                     $avail->{ggtt_free}, $t
                 );
