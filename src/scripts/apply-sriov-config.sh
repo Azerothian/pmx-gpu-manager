@@ -155,14 +155,17 @@ main() {
             continue
         }
 
-        # Get template defaults
-        local tpl_lmem="" tpl_ggtt="" tpl_contexts="" tpl_doorbells="" tpl_autoprobe="0"
+        # Get per-VF defaults from config section, then template overrides
+        local tpl_lmem="${config[$bdf|lmem_per_vf]:-}"
+        local tpl_ggtt="${config[$bdf|ggtt_per_vf]:-}"
+        local tpl_contexts="" tpl_doorbells=""
+        local tpl_autoprobe="${config[$bdf|drivers_autoprobe]:-0}"
         if [ -n "$template" ]; then
-            tpl_lmem="${templates[$template|vf_lmem]:-}"
-            tpl_ggtt="${templates[$template|vf_ggtt]:-}"
+            tpl_lmem="${templates[$template|vf_lmem]:-$tpl_lmem}"
+            tpl_ggtt="${templates[$template|vf_ggtt]:-$tpl_ggtt}"
             tpl_contexts="${templates[$template|vf_contexts]:-}"
             tpl_doorbells="${templates[$template|vf_doorbells]:-}"
-            tpl_autoprobe="${templates[$template|drivers_autoprobe]:-0}"
+            tpl_autoprobe="${templates[$template|drivers_autoprobe]:-$tpl_autoprobe}"
         fi
 
         # Determine tile count (1 for flex/bmg, 2 for pvc)

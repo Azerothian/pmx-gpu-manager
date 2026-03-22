@@ -1306,6 +1306,7 @@ __PACKAGE__->register_method({
         if ($do_persist) {
             my $config = parse_ini_config($XPU_SRIOV_CONF);
             $config->{$bdf} = {
+                persist            => 1,
                 num_vfs            => $num_vfs,
                 lmem_per_vf        => $lmem_per_vf,
                 ggtt_per_vf        => $ggtt_per_vf,
@@ -1315,6 +1316,7 @@ __PACKAGE__->register_method({
                 preempt_timeout_us => $preempt_timeout_us,
                 drivers_autoprobe  => $drivers_autoprobe,
                 family             => $family,
+                device_id          => $rec->{device_id},
             };
             write_ini_config($XPU_SRIOV_CONF, $config);
         }
