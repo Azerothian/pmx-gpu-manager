@@ -1177,45 +1177,48 @@ __PACKAGE__->register_method({
             die "Failed to set VF count: $@\n" if $@;
 
         } elsif ($num_vfs > $current_numvfs) {
-            # INCREASE: adjust existing VF memory first, increase count, set new VF memory
-            # Step 1: adjust existing VF quotas
-            eval {
-                for my $vf (1 .. $current_numvfs) {
-                    for my $t (0 .. ($tiles - 1)) {
-                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
-                        write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
-                        write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
-                        write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
-                        write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
-                    }
-                }
-            };
-            # Non-fatal: existing VFs may not allow quota change while running
-
-            # Step 2: set quotas for new VFs (smallest to largest)
-            eval {
-                for my $vf (($current_numvfs + 1) .. $num_vfs) {
-                    for my $t (0 .. ($tiles - 1)) {
-                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
-                        write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
-                        write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
-                        write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
-                        write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
-                    }
-                }
-            };
-            # Non-fatal: VFs may not exist yet, quotas set after enable
-
-            # Step 3: increase VF count
+            # INCREASE: xe/i915 drivers require writing 0 before any count change
+            # Try in-place increase first; if it fails, reset and re-enable
+            my $needs_reset = 0;
             eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", $num_vfs) };
             if ($@) {
-                eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
-                die "Failed to increase VF count: $@\n";
+                # In-place increase not supported — must go through 0
+                $needs_reset = 1;
+            } else {
+                # In-place increase succeeded — verify
+                my $check = int(read_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs") // 0);
+                $needs_reset = 1 if $check != $num_vfs;
             }
 
-            # Step 4: set quotas on newly created VFs (they exist now)
+            if ($needs_reset) {
+                # Reset to 0, set quotas for all VFs, then re-enable
+                eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
+                die "Failed to reset VF count for increase: $@\n" if $@;
+
+                # Set quotas for all VFs (smallest to largest for new ones)
+                eval {
+                    for my $vf (1 .. $num_vfs) {
+                        for my $t (0 .. ($tiles - 1)) {
+                            my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                            write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
+                            write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
+                            write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
+                            write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
+                        }
+                    }
+                };
+                die "Failed to programme VF quotas: $@\n" if $@;
+
+                eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", $num_vfs) };
+                if ($@) {
+                    eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
+                    die "Failed to increase VF count: $@\n";
+                }
+            }
+
+            # Set quotas on all VFs (they exist now)
             eval {
-                for my $vf (($current_numvfs + 1) .. $num_vfs) {
+                for my $vf (1 .. $num_vfs) {
                     for my $t (0 .. ($tiles - 1)) {
                         my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
                         write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
