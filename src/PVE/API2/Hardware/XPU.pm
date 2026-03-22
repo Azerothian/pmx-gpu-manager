@@ -1150,22 +1150,95 @@ __PACKAGE__->register_method({
             }
         }
 
-        # Programme each VF quota
-        eval {
-            for my $vf (1 .. $num_vfs) {
-                for my $t (0 .. ($tiles - 1)) {
-                    my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
-                    write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
-                    write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
-                    write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
-                    write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
-                }
-            }
-        };
-        if ($@) {
-            # Rollback: disable VFs
+        my $current_numvfs = int(read_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs") // 0);
+
+        if ($num_vfs < $current_numvfs) {
+            # DECREASE: write 0 first (kernel requires it), then new count
+            # Set memory quotas for remaining VFs first (decrease, then adjust)
             eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
-            die "Failed to programme VF quotas: $@\n";
+            die "Failed to remove VFs for decrease: $@\n" if $@;
+
+            # Set quotas for new (lower) count
+            eval {
+                for my $vf (1 .. $num_vfs) {
+                    for my $t (0 .. ($tiles - 1)) {
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
+                        write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
+                        write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
+                        write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
+                    }
+                }
+            };
+            die "Failed to programme VF quotas: $@\n" if $@;
+
+            # Re-enable with lower count
+            eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", $num_vfs) };
+            die "Failed to set VF count: $@\n" if $@;
+
+        } elsif ($num_vfs > $current_numvfs) {
+            # INCREASE: adjust existing VF memory first, increase count, set new VF memory
+            # Step 1: adjust existing VF quotas
+            eval {
+                for my $vf (1 .. $current_numvfs) {
+                    for my $t (0 .. ($tiles - 1)) {
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
+                        write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
+                        write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
+                        write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
+                    }
+                }
+            };
+            # Non-fatal: existing VFs may not allow quota change while running
+
+            # Step 2: set quotas for new VFs (smallest to largest)
+            eval {
+                for my $vf (($current_numvfs + 1) .. $num_vfs) {
+                    for my $t (0 .. ($tiles - 1)) {
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
+                        write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
+                        write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
+                        write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
+                    }
+                }
+            };
+            # Non-fatal: VFs may not exist yet, quotas set after enable
+
+            # Step 3: increase VF count
+            eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", $num_vfs) };
+            if ($@) {
+                eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
+                die "Failed to increase VF count: $@\n";
+            }
+
+            # Step 4: set quotas on newly created VFs (they exist now)
+            eval {
+                for my $vf (($current_numvfs + 1) .. $num_vfs) {
+                    for my $t (0 .. ($tiles - 1)) {
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
+                        write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
+                    }
+                }
+            };
+            # Non-fatal: best-effort quota assignment
+
+        } else {
+            # SAME COUNT: just adjust quotas
+            eval {
+                for my $vf (1 .. $num_vfs) {
+                    for my $t (0 .. ($tiles - 1)) {
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
+                        write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
+                        write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
+                        write_sysfs($paths->{preempt_timeout_us}, $preempt_timeout_us);
+                    }
+                }
+            };
+            die "Failed to programme VF quotas: $@\n" if $@;
         }
 
         # Set drivers_autoprobe
@@ -1177,20 +1250,10 @@ __PACKAGE__->register_method({
         };
         # Non-fatal if path doesn't exist on older kernels
 
-        # Enable VFs
-        eval {
-            write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", $num_vfs);
-        };
-        if ($@) {
-            eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
-            die "Failed to enable VFs: $@\n";
-        }
-
         # Verify
         my $actual_numvfs = int(read_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs") // 0);
         unless ($actual_numvfs == $num_vfs) {
-            eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
-            die "VF enable verification failed: requested $num_vfs, got $actual_numvfs\n";
+            die "VF count verification failed: requested $num_vfs, got $actual_numvfs\n";
         }
 
         # Persist configuration
