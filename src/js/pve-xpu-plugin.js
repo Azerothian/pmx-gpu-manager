@@ -1077,6 +1077,27 @@ Ext.define('PVE.window.ModifyVfsDialog', {
     onVfCountChange: function(newCount) {
         var me = this;
         newCount = parseInt(newCount, 10) || 0;
+        // Enforce upper bound
+        if (newCount > me.totalVfs) {
+            newCount = me.totalVfs;
+            me.down('#numVfsField').setValue(newCount);
+            return;
+        }
+        // Enforce lower bound: cannot go below highest assigned VF index
+        var minVfs = 0;
+        me.vfRows.forEach(function(r) {
+            if (r.assigned && r.vfIndex > minVfs) { minVfs = r.vfIndex; }
+        });
+        if (newCount < minVfs) {
+            newCount = minVfs;
+            me.down('#numVfsField').setValue(newCount);
+            return;
+        }
+        if (newCount < 0) {
+            newCount = 0;
+            me.down('#numVfsField').setValue(0);
+            return;
+        }
         var oldCount = me.vfRows.length;
 
         if (newCount > oldCount) {
@@ -1085,7 +1106,8 @@ Ext.define('PVE.window.ModifyVfsDialog', {
             me.vfRows.forEach(function(r) { usedGib += r.lmemGib; });
             var remaining = me.lmemTotalGib - usedGib;
             var toAdd = newCount - oldCount;
-            var shareEach = toAdd > 0 && remaining > 0 ? remaining / toAdd : 0;
+            var shareEach = toAdd > 0 && remaining > 0 ? remaining / toAdd : 0.125;
+            shareEach = Math.max(shareEach, 0.125); // minimum 128MB per VF
             for (var i = oldCount + 1; i <= newCount; i++) {
                 me.vfRows.push({
                     vfIndex: i,
@@ -1136,11 +1158,11 @@ Ext.define('PVE.window.ModifyVfsDialog', {
                         itemId: 'vfLmem_' + row.vfIndex,
                         flex: 1,
                         value: row.lmemGib,
-                        minValue: 0,
+                        minValue: 0.125,
                         maxValue: me.lmemTotalGib,
                         decimalPrecision: 2,
                         step: 0.5,
-                        readOnly: row.assigned,
+                        disabled: row.assigned,
                         listeners: {
                             change: (function(vfIdx) {
                                 return function(field, newVal) {
@@ -1176,6 +1198,22 @@ Ext.define('PVE.window.ModifyVfsDialog', {
         var numVfsField = me.down('#numVfsField');
         var newNumVfs = parseInt(numVfsField.getValue(), 10) || 0;
         var currentNumVfs = me.deviceRecord ? (me.deviceRecord.get('sriov_numvfs') || 0) : 0;
+
+        // Final validation: enforce bounds
+        if (newNumVfs > me.totalVfs) {
+            Ext.Msg.alert(gettext('Error'), Ext.String.format(
+                gettext('Cannot exceed maximum VF count ({0})'), me.totalVfs));
+            return;
+        }
+        var minVfs = 0;
+        me.vfRows.forEach(function(r) {
+            if (r.assigned && r.vfIndex > minVfs) { minVfs = r.vfIndex; }
+        });
+        if (newNumVfs < minVfs) {
+            Ext.Msg.alert(gettext('Error'), Ext.String.format(
+                gettext('Cannot reduce below {0} VFs — VF{0} is assigned to a VM'), minVfs));
+            return;
+        }
         var persist = me.down('#persistCb').getValue() ? 1 : 0;
 
         // Compute lmem_per_vf (backend uses a single value for all VFs)
