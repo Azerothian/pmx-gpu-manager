@@ -1,5 +1,5 @@
 /*
- * PVE XPU/GPU Manager Plugin
+ * GPU Manager for Proxmox VE
  * ExtJS 7 frontend for Intel discrete GPU SR-IOV management
  *
  * Registers a "XPU/GPU" tab in PVE.node.Config with:
@@ -69,7 +69,7 @@ Ext.define('PVE.store.XpuDevices', {
         { name: 'numa_node', type: 'int' },
         { name: 'tiles', type: 'int' },
         { name: 'sriov_capable', type: 'boolean' },
-        { name: 'sriov_totalvfs', type: 'int' },
+        { name: 'sriov_maxvfs', type: 'int' },
         { name: 'sriov_numvfs', type: 'int' },
         { name: 'persisted', type: 'boolean' },
         'telemetry',
@@ -198,6 +198,18 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
             }
         },
         {
+            header: gettext('GPU %'),
+            dataIndex: 'telemetry',
+            width: 65,
+            align: 'center',
+            renderer: function(telemetry) {
+                if (!telemetry || telemetry.gpu_util_pct === null || telemetry.gpu_util_pct === undefined) { return '-'; }
+                var pct = parseFloat(telemetry.gpu_util_pct);
+                var colour = pct > 80 ? '#e84040' : (pct > 50 ? '#f0a020' : '#26a826');
+                return '<span style="color:' + colour + ';font-weight:bold;">' + pct + '%</span>';
+            }
+        },
+        {
             header: gettext('Fan'),
             dataIndex: 'telemetry',
             width: 70,
@@ -222,7 +234,7 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
         },
         {
             header: gettext('Max VFs'),
-            dataIndex: 'sriov_totalvfs',
+            dataIndex: 'sriov_maxvfs',
             width: 60,
             align: 'center'
         },
@@ -240,7 +252,7 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
             dataIndex: 'bdf',
             width: 120,
             renderer: function(val, meta, record) {
-                var capable = record.get('sriov_capable') || record.get('sriov_totalvfs') > 0;
+                var capable = record.get('sriov_capable') || record.get('sriov_maxvfs') > 0;
                 if (!capable) {
                     return '<span style="color:#888;">' + gettext('N/A') + '</span>';
                 }
@@ -390,7 +402,7 @@ Ext.define('PVE.panel.XpuPropertiesCard', {
             { label: gettext('Render Node'), value: Ext.htmlEncode(data.drm_render || '-') },
             { label: gettext('NUMA Node'), value: data.numa_node !== undefined ? String(data.numa_node) : '-' },
             { label: gettext('Tiles'), value: data.tiles !== undefined ? String(data.tiles) : '-' },
-            { label: gettext('SR-IOV Max VFs'), value: data.sriov_totalvfs !== undefined ? String(data.sriov_totalvfs) : '-' },
+            { label: gettext('SR-IOV Max VFs'), value: data.sriov_maxvfs !== undefined ? String(data.sriov_maxvfs) : '-' },
             { label: gettext('SR-IOV Active VFs'), value: data.sriov_numvfs !== undefined ? String(data.sriov_numvfs) : '-' }
         ];
         me.down('#propsView').getStore().loadData(rows);
@@ -952,7 +964,7 @@ Ext.define('PVE.window.ModifyVfsDialog', {
         var rec = me.deviceRecord;
         var deviceName = rec ? rec.get('device_name') : '-';
         var bdf = rec ? rec.get('bdf') : '-';
-        var totalVfs = rec ? (rec.get('sriov_totalvfs') || 0) : 0;
+        var totalVfs = rec ? (rec.get('sriov_maxvfs') || 0) : 0;
         var currentNumVfs = rec ? (rec.get('sriov_numvfs') || 0) : 0;
         var telemetry = rec ? rec.get('telemetry') : null;
         var lmemTotalMb = telemetry ? (telemetry.lmem_total_mb || 0) : 0;
@@ -1433,14 +1445,12 @@ Ext.define('PVE.panel.XpuSriovPanel', {
         var me = this;
         me.deviceRecord = deviceRecord;
 
-        var capable = deviceRecord && (deviceRecord.get('sriov_capable') || deviceRecord.get('sriov_totalvfs') > 0);
-        if (!capable) {
-            me.disable();
-            me.setTitle(gettext('SR-IOV Virtual Functions') + ' \u2014 ' + gettext('Not supported'));
-            me.down('#modifyVfsBtn').setDisabled(true);
-            me.down('#vfGrid').getStore().removeAll();
+        var maxVfs = deviceRecord ? (deviceRecord.get('sriov_maxvfs') || 0) : 0;
+        if (!maxVfs || maxVfs <= 0) {
+            me.hide();
             return;
         }
+        me.show();
 
         // Disable SR-IOV management when PF is assigned to a VM (whole-GPU passthrough)
         var pfAssigned = deviceRecord.get('pf_assigned');

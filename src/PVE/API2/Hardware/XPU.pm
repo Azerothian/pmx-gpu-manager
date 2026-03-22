@@ -170,6 +170,7 @@ sub read_telemetry {
         power_tdp_w        => undef,
         clock_mhz          => undef,
         clock_max_mhz      => undef,
+        gpu_util_pct       => undef,
         lmem_total_mb      => undef,
         lmem_used_mb       => undef,
         fan_rpm            => undef,
@@ -338,6 +339,37 @@ sub read_telemetry {
         }
     }
 
+    # GPU utilization via perf PMU counters (xe driver)
+    if (defined $bdf) {
+        my $pmu_dev = "xe_$bdf";
+        $pmu_dev =~ s/:/_/g;  # xe_0000_03_00.0
+        if (-d "/sys/bus/event_source/devices/$pmu_dev") {
+        eval {
+            my ($active, $total);
+            run_command(
+                ['perf', 'stat', '-e',
+                 "$pmu_dev/engine-active-ticks/,$pmu_dev/engine-total-ticks/",
+                 '-I', '200', '-x', ',', 'sleep', '0.3'],
+                outfunc => sub {},
+                errfunc => sub {
+                    my $line = shift;
+                    if ($line =~ /(\d+),,\Q$pmu_dev\E\/engine-active-ticks\//) {
+                        $active = $1;
+                    } elsif ($line =~ /(\d+),,\Q$pmu_dev\E\/engine-total-ticks\//) {
+                        $total = $1;
+                    }
+                },
+            );
+            if (defined $active && defined $total && $total > 0) {
+                $result->{gpu_util_pct} = sprintf("%.1f", ($active / $total) * 100);
+            } else {
+                $result->{gpu_util_pct} = 0;
+            }
+        };
+        # Non-fatal: perf may not be installed
+        }
+    }
+
     # Throttle detection
     if (defined $bdf) {
         my $card_dev = sysfs_path("/sys/class/drm/$card/device");
@@ -406,7 +438,7 @@ sub run_prechecks {
         };
     }
 
-    # 3. SR-IOV BIOS support: sriov_totalvfs > 0
+    # 3. SR-IOV BIOS support: sriov_maxvfs > 0
     {
         my $totalvfs_path = "/sys/bus/pci/devices/$bdf/sriov_totalvfs";
         my $totalvfs = read_sysfs($totalvfs_path) // 0;
@@ -415,8 +447,8 @@ sub run_prechecks {
         $checks{sriov_bios} = {
             pass   => $pass ? \1 : \0,
             detail => $pass
-                ? "sriov_totalvfs=$totalvfs"
-                : 'sriov_totalvfs is 0 — SR-IOV not supported by firmware',
+                ? "sriov_maxvfs=$totalvfs"
+                : 'sriov_maxvfs is 0 — SR-IOV not supported by firmware',
         };
     }
 
@@ -682,7 +714,7 @@ sub _get_device_name {
 sub _has_sriov_cap {
     my ($bdf) = @_;
 
-    # First check sriov_totalvfs in sysfs — works for both i915 and xe drivers
+    # First check sriov_maxvfs in sysfs — works for both i915 and xe drivers
     my $totalvfs = read_sysfs("/sys/bus/pci/devices/$bdf/sriov_totalvfs");
     return 1 if defined $totalvfs && $totalvfs =~ /^\d+$/ && $totalvfs > 0;
 
@@ -724,7 +756,7 @@ sub _collect_device {
     my $subsystem_vendor = read_sysfs("$base/subsystem_vendor") // '';
     my $subsystem_device = read_sysfs("$base/subsystem_device") // '';
     my $numa_node        = read_sysfs("$base/numa_node")        // -1;
-    my $sriov_totalvfs   = read_sysfs("$base/sriov_totalvfs")   // 0;
+    my $sriov_maxvfs   = read_sysfs("$base/sriov_totalvfs")   // 0;
     my $sriov_numvfs     = read_sysfs("$base/sriov_numvfs")     // 0;
 
     my $driver = '';
@@ -770,7 +802,7 @@ sub _collect_device {
         driver           => $driver,
         numa_node        => int($numa_node),
         sriov_capable    => $sriov_capable,
-        sriov_totalvfs   => int($sriov_totalvfs),
+        sriov_maxvfs   => int($sriov_maxvfs),
         sriov_numvfs     => int($sriov_numvfs),
         drm_card         => $card // '',
         render_node      => $render_node // '',
@@ -967,7 +999,7 @@ __PACKAGE__->register_method({
             bdf             => $bdf,
             prechecks       => $prechecks,
             sriov_numvfs    => int($rec->{sriov_numvfs}),
-            sriov_totalvfs  => int($rec->{sriov_totalvfs}),
+            sriov_maxvfs  => int($rec->{sriov_maxvfs}),
             tile_resources  => \@tile_resources,
             persisted_config => $persisted_section // {},
             config_drift    => $drift,
