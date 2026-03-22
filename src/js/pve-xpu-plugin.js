@@ -1179,7 +1179,19 @@ Ext.define('PVE.window.ModifyVfsDialog', {
                         listeners: {
                             change: (function(vfIdx) {
                                 return function(field, newVal) {
-                                    me.vfRows[vfIdx - 1].lmemGib = parseFloat(newVal) || 0;
+                                    var val = parseFloat(newVal) || 0;
+                                    // Check if total would exceed max
+                                    var otherSum = 0;
+                                    me.vfRows.forEach(function(r) {
+                                        if (r.vfIndex !== vfIdx) { otherSum += r.lmemGib; }
+                                    });
+                                    var maxForThis = Math.floor((me.lmemTotalGib - otherSum) * 100) / 100;
+                                    if (val > maxForThis) {
+                                        val = maxForThis;
+                                        field.setValue(val);
+                                    }
+                                    me.vfRows[vfIdx - 1].lmemGib = val;
+                                    me.updateLmemSummary();
                                 };
                             }(row.vfIndex))
                         }
@@ -1200,6 +1212,33 @@ Ext.define('PVE.window.ModifyVfsDialog', {
                 style: 'color:#888;font-style:italic;'
             });
         }
+
+        // Add LMEM usage summary
+        fieldset.add({
+            xtype: 'label',
+            itemId: 'lmemSummary',
+            margin: '8 0 0 0',
+            style: 'font-weight:bold;'
+        });
+        me.updateLmemSummary();
+    },
+
+    updateLmemSummary: function() {
+        var me = this;
+        var totalUsed = 0;
+        me.vfRows.forEach(function(r) { totalUsed += r.lmemGib; });
+        var remaining = me.lmemTotalGib - totalUsed;
+        var label = me.down('#lmemSummary');
+        if (label) {
+            var colour = remaining < 0 ? '#e84040' : '#26a826';
+            label.setHtml(
+                gettext('Total allocated') + ': ' +
+                '<span style="color:' + colour + ';">' +
+                totalUsed.toFixed(2) + ' / ' + me.lmemTotalGib.toFixed(2) + ' GiB' +
+                '</span>' +
+                ' (' + remaining.toFixed(2) + ' GiB ' + gettext('remaining') + ')'
+            );
+        }
     },
 
     doApply: function() {
@@ -1213,6 +1252,14 @@ Ext.define('PVE.window.ModifyVfsDialog', {
         var currentNumVfs = me.deviceRecord ? (me.deviceRecord.get('sriov_numvfs') || 0) : 0;
 
         // Final validation: enforce bounds
+        var totalLmem = 0;
+        me.vfRows.forEach(function(r) { totalLmem += r.lmemGib; });
+        if (totalLmem > me.lmemTotalGib) {
+            Ext.Msg.alert(gettext('Error'), Ext.String.format(
+                gettext('Total LMEM allocation ({0} GiB) exceeds available ({1} GiB)'),
+                totalLmem.toFixed(2), me.lmemTotalGib.toFixed(2)));
+            return;
+        }
         if (newNumVfs > me.totalVfs) {
             Ext.Msg.alert(gettext('Error'), Ext.String.format(
                 gettext('Cannot exceed maximum VF count ({0})'), me.totalVfs));
