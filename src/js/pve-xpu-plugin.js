@@ -928,18 +928,19 @@ Ext.define('PVE.store.XpuVfs', {
 });
 
 /* =========================================================================
- * CreateVfsDialog — modal window for VF creation
+ * ModifyVfsDialog — modal window for VF count + per-VF LMEM management
  * ========================================================================= */
 
-Ext.define('PVE.window.CreateVfsDialog', {
+Ext.define('PVE.window.ModifyVfsDialog', {
     extend: 'Ext.window.Window',
-    alias: 'widget.xpuCreateVfsDialog',
+    alias: 'widget.pveModifyVfsDialog',
 
-    title: gettext('Create Virtual Functions'),
+    title: gettext('Modify Virtual Functions'),
+    width: 600,
     modal: true,
-    width: 520,
-    layout: 'fit',
-    resizable: false,
+    resizable: true,
+    layout: { type: 'vbox', align: 'stretch' },
+    bodyPadding: 10,
 
     config: {
         pveSelNode: null,
@@ -951,74 +952,61 @@ Ext.define('PVE.window.CreateVfsDialog', {
         var rec = me.deviceRecord;
         var deviceName = rec ? rec.get('device_name') : '-';
         var bdf = rec ? rec.get('bdf') : '-';
-        var totalVfs = rec ? (rec.get('sriov_totalvfs') || 1) : 1;
-        var deviceId = rec ? rec.get('device_id') : null;
+        var totalVfs = rec ? (rec.get('sriov_totalvfs') || 0) : 0;
+        var currentNumVfs = rec ? (rec.get('sriov_numvfs') || 0) : 0;
+        var telemetry = rec ? rec.get('telemetry') : null;
+        var lmemTotalMb = telemetry ? (telemetry.lmem_total_mb || 0) : 0;
+        var lmemTotalGib = lmemTotalMb / 1024;
+
+        me.lmemTotalGib = lmemTotalGib;
+        me.totalVfs = totalVfs;
+        // vfRows stores { vfIndex, lmemGib, assigned, vmid } for each current VF row
+        me.vfRows = [];
 
         me.items = [
             {
-                xtype: 'form',
-                itemId: 'createForm',
-                bodyPadding: 12,
-                defaults: { anchor: '100%', labelWidth: 160 },
-                items: [
-                    {
-                        xtype: 'displayfield',
-                        fieldLabel: gettext('Device'),
-                        value: Ext.htmlEncode(deviceName + ' (' + bdf + ')')
-                    },
-                    {
-                        xtype: 'displayfield',
-                        fieldLabel: gettext('Available'),
-                        itemId: 'availInfo',
-                        value: Ext.String.format(gettext('{0} VFs max'), totalVfs)
-                    },
-                    { xtype: 'numberfield', itemId: 'numVfsField', fieldLabel: gettext('Number of VFs'),
-                      name: 'num_vfs', value: 1, minValue: 1, maxValue: totalVfs,
-                      allowBlank: false },
-                    { xtype: 'combobox', itemId: 'templateField', fieldLabel: gettext('Template'),
-                      name: 'template', queryMode: 'local', displayField: 'name', valueField: 'name',
-                      emptyText: gettext('None (manual)'), forceSelection: false, editable: false,
-                      store: Ext.create('Ext.data.Store', {
-                          fields: ['name', 'num_vfs', 'vf_lmem', 'vf_ggtt', 'vf_contexts',
-                                   'vf_doorbells', 'scheduler', 'drivers_autoprobe'],
-                          data: []
-                      })
-                    },
-                    {
-                        xtype: 'fieldset',
-                        title: gettext('Resource Allocation (per VF)'),
-                        itemId: 'manualFields',
-                        defaults: { labelWidth: 160, anchor: '100%' },
-                        items: [
-                            { xtype: 'numberfield', itemId: 'lmemField', fieldLabel: gettext('LMEM per VF (bytes)'),
-                              name: 'lmem_per_vf', minValue: 0, step: 1048576,
-                              emptyText: gettext('auto-split') },
-                            { xtype: 'displayfield', itemId: 'lmemHint', value: '', style: 'color:#888;' },
-                            { xtype: 'numberfield', itemId: 'ggttField', fieldLabel: gettext('GGTT per VF (bytes)'),
-                              name: 'ggtt_per_vf', minValue: 0, step: 1048576,
-                              emptyText: gettext('auto-split') },
-                            { xtype: 'numberfield', itemId: 'contextsField', fieldLabel: gettext('Contexts per VF'),
-                              name: 'contexts_per_vf', minValue: 1, value: 1024 },
-                            { xtype: 'numberfield', itemId: 'doorbellsField', fieldLabel: gettext('Doorbells per VF'),
-                              name: 'doorbells_per_vf', minValue: 1, value: 60 },
-                            { xtype: 'numberfield', itemId: 'execQuantumField', fieldLabel: gettext('Exec Quantum (ms)'),
-                              name: 'exec_quantum_ms', minValue: 1, value: 20 },
-                            { xtype: 'numberfield', itemId: 'preemptField', fieldLabel: gettext('Preempt Timeout (\u03bcs)'),
-                              name: 'preempt_timeout_us', minValue: 1, value: 1000 }
-                        ]
-                    },
-                    {
-                        xtype: 'fieldset',
-                        title: gettext('Options'),
-                        defaults: { anchor: '100%' },
-                        items: [
-                            { xtype: 'checkbox', fieldLabel: gettext('Persist across reboots'),
-                              name: 'persist', checked: true, inputValue: 1, uncheckedValue: 0 },
-                            { xtype: 'checkbox', fieldLabel: gettext('Auto-probe drivers'),
-                              name: 'drivers_autoprobe', checked: false, inputValue: 1, uncheckedValue: 0 }
-                        ]
+                xtype: 'displayfield',
+                fieldLabel: gettext('Device'),
+                labelWidth: 160,
+                value: Ext.htmlEncode(deviceName + ' (' + bdf + ')')
+            },
+            {
+                xtype: 'displayfield',
+                fieldLabel: gettext('Total LMEM'),
+                labelWidth: 160,
+                value: lmemTotalGib > 0 ? lmemTotalGib.toFixed(2) + ' GiB' : gettext('Unknown')
+            },
+            {
+                xtype: 'numberfield',
+                itemId: 'numVfsField',
+                fieldLabel: gettext('Number of VFs'),
+                labelWidth: 160,
+                name: 'num_vfs',
+                value: currentNumVfs,
+                minValue: 0,
+                maxValue: totalVfs,
+                allowBlank: false,
+                listeners: {
+                    change: function(field, newVal) {
+                        me.onVfCountChange(newVal);
                     }
-                ]
+                }
+            },
+            {
+                xtype: 'fieldset',
+                title: gettext('Per-VF LMEM Allocation (GiB)'),
+                itemId: 'vfLmemFieldset',
+                layout: { type: 'vbox', align: 'stretch' },
+                items: []
+            },
+            {
+                xtype: 'checkbox',
+                itemId: 'persistCb',
+                fieldLabel: gettext('Persist across reboots'),
+                labelWidth: 160,
+                checked: true,
+                inputValue: 1,
+                uncheckedValue: 0
             }
         ];
 
@@ -1029,135 +1017,233 @@ Ext.define('PVE.window.CreateVfsDialog', {
             },
             {
                 xtype: 'button',
-                text: gettext('Create VFs'),
-                itemId: 'createBtn',
-                iconCls: 'fa fa-plus',
-                formBind: true,
-                handler: function() { me.doCreate(); }
+                text: gettext('Apply'),
+                itemId: 'applyBtn',
+                iconCls: 'fa fa-check',
+                handler: function() { me.doApply(); }
             }
         ];
 
         me.callParent();
-
-        // Load templates for this device
-        me.loadTemplates(deviceId);
-
-        // Wire template selection -> auto-populate
-        var templateField = me.down('#templateField');
-        if (templateField) {
-            templateField.on('select', function(combo, templateRecord) {
-                me.applyTemplate(templateRecord);
-            });
-            templateField.on('change', function(combo, val) {
-                if (!val) {
-                    me.clearTemplate();
-                }
-            });
-        }
-
-        // Wire LMEM field to show human-readable hint
-        var lmemField = me.down('#lmemField');
-        if (lmemField) {
-            lmemField.on('change', function(field, val) {
-                var hint = me.down('#lmemHint');
-                if (hint) {
-                    hint.setValue(val ? '= ' + xpuFormatBytes(val) : '');
-                }
-            });
-        }
     },
 
-    loadTemplates: function(deviceId) {
+    /**
+     * Called after show() to load current VF LMEM data from the VF store.
+     * @param {Ext.data.Store} vfStore  The store from the parent vfGrid
+     */
+    loadVfData: function(vfStore) {
         var me = this;
-        var nodeName = me.pveSelNode && me.pveSelNode.data ? me.pveSelNode.data.node : undefined;
-        if (!nodeName) { return; }
+        var rec = me.deviceRecord;
+        var currentNumVfs = rec ? (rec.get('sriov_numvfs') || 0) : 0;
 
-        Proxmox.Utils.API2Request({
-            url: '/nodes/' + encodeURIComponent(nodeName) + '/hardware/xpu/templates',
-            params: deviceId ? { device_id: deviceId } : {},
-            method: 'GET',
-            success: function(response) {
-                var data = response.result && response.result.data;
-                if (Ext.isArray(data)) {
-                    var templateField = me.down('#templateField');
-                    if (templateField) {
-                        templateField.getStore().loadData(data);
+        // Calculate minimum VF count: highest assigned VF index
+        var minVfs = 0;
+        if (vfStore) {
+            vfStore.each(function(vfRec) {
+                if (vfRec.get('assigned')) {
+                    var idx = vfRec.get('vf_index');
+                    if (idx > minVfs) { minVfs = idx; }
+                }
+            });
+        }
+        // minVfs is the highest assigned index; we need at least that many VFs
+        // (vf_index is 1-based typically, so minVfs == count needed)
+        me.down('#numVfsField').setMinValue(minVfs);
+
+        // Build vfRows from store
+        me.vfRows = [];
+        if (vfStore && currentNumVfs > 0) {
+            for (var i = 1; i <= currentNumVfs; i++) {
+                var vfRec = vfStore.findRecord('vf_index', i);
+                var lmemBytes = vfRec ? Number(vfRec.get('lmem_quota')) : 0;
+                var lmemGib = lmemBytes > 0 ? lmemBytes / (1024 * 1024 * 1024) : 0;
+                var assigned = vfRec ? !!vfRec.get('assigned') : false;
+                var vmid = vfRec ? vfRec.get('vmid') : null;
+                me.vfRows.push({
+                    vfIndex: i,
+                    lmemGib: lmemGib,
+                    assigned: assigned,
+                    vmid: vmid
+                });
+            }
+        }
+
+        me.rebuildVfRows();
+    },
+
+    /**
+     * Called when the VF count spinner changes.
+     */
+    onVfCountChange: function(newCount) {
+        var me = this;
+        newCount = parseInt(newCount, 10) || 0;
+        var oldCount = me.vfRows.length;
+
+        if (newCount > oldCount) {
+            // Add new VF rows with equal share of remaining LMEM
+            var usedGib = 0;
+            me.vfRows.forEach(function(r) { usedGib += r.lmemGib; });
+            var remaining = me.lmemTotalGib - usedGib;
+            var toAdd = newCount - oldCount;
+            var shareEach = toAdd > 0 && remaining > 0 ? remaining / toAdd : 0;
+            for (var i = oldCount + 1; i <= newCount; i++) {
+                me.vfRows.push({
+                    vfIndex: i,
+                    lmemGib: Math.floor(shareEach * 100) / 100,
+                    assigned: false,
+                    vmid: null
+                });
+            }
+        } else if (newCount < oldCount) {
+            // Remove trailing unassigned VFs only
+            me.vfRows = me.vfRows.slice(0, newCount);
+        }
+
+        me.rebuildVfRows();
+    },
+
+    /**
+     * Rebuild the per-VF LMEM number fields in the fieldset.
+     */
+    rebuildVfRows: function() {
+        var me = this;
+        var fieldset = me.down('#vfLmemFieldset');
+        if (!fieldset) { return; }
+
+        fieldset.removeAll(true);
+
+        me.vfRows.forEach(function(row, idx) {
+            var label = gettext('VF') + ' ' + row.vfIndex;
+            if (row.assigned && row.vmid) {
+                label += ' <span style="color:#26a826;">[VM ' + Ext.htmlEncode(String(row.vmid)) + ']</span>';
+            } else if (row.assigned) {
+                label += ' <span style="color:#26a826;">[' + gettext('Assigned') + ']</span>';
+            }
+
+            fieldset.add({
+                xtype: 'container',
+                layout: { type: 'hbox', align: 'middle' },
+                margin: '2 0',
+                items: [
+                    {
+                        xtype: 'label',
+                        html: label,
+                        width: 160,
+                        style: row.assigned ? 'font-weight:bold;' : ''
+                    },
+                    {
+                        xtype: 'numberfield',
+                        itemId: 'vfLmem_' + row.vfIndex,
+                        flex: 1,
+                        value: row.lmemGib,
+                        minValue: 0,
+                        maxValue: me.lmemTotalGib,
+                        decimalPrecision: 2,
+                        step: 0.5,
+                        readOnly: row.assigned,
+                        listeners: {
+                            change: (function(vfIdx) {
+                                return function(field, newVal) {
+                                    me.vfRows[vfIdx - 1].lmemGib = parseFloat(newVal) || 0;
+                                };
+                            }(row.vfIndex))
+                        }
+                    },
+                    {
+                        xtype: 'label',
+                        text: 'GiB',
+                        margin: '0 0 0 6'
                     }
-                }
-            },
-            failure: Ext.emptyFn  // templates are optional
+                ]
+            });
         });
-    },
 
-    applyTemplate: function(templateRecord) {
-        var me = this;
-        if (!templateRecord) { return; }
-
-        var numVfsField = me.down('#numVfsField');
-        var lmemField = me.down('#lmemField');
-        var ggttField = me.down('#ggttField');
-        var contextsField = me.down('#contextsField');
-        var doorbellsField = me.down('#doorbellsField');
-
-        if (numVfsField && templateRecord.get('num_vfs')) {
-            numVfsField.setValue(templateRecord.get('num_vfs'));
-        }
-        if (lmemField && templateRecord.get('vf_lmem')) {
-            lmemField.setValue(templateRecord.get('vf_lmem'));
-            lmemField.setReadOnly(true);
-        }
-        if (ggttField && templateRecord.get('vf_ggtt')) {
-            ggttField.setValue(templateRecord.get('vf_ggtt'));
-            ggttField.setReadOnly(true);
-        }
-        if (contextsField && templateRecord.get('vf_contexts')) {
-            contextsField.setValue(templateRecord.get('vf_contexts'));
-            contextsField.setReadOnly(true);
-        }
-        if (doorbellsField && templateRecord.get('vf_doorbells')) {
-            doorbellsField.setValue(templateRecord.get('vf_doorbells'));
-            doorbellsField.setReadOnly(true);
+        if (me.vfRows.length === 0) {
+            fieldset.add({
+                xtype: 'label',
+                text: gettext('No VFs configured. Set the VF count above to allocate.'),
+                style: 'color:#888;font-style:italic;'
+            });
         }
     },
 
-    clearTemplate: function() {
+    doApply: function() {
         var me = this;
-        ['#lmemField', '#ggttField', '#contextsField', '#doorbellsField'].forEach(function(sel) {
-            var f = me.down(sel);
-            if (f) { f.setReadOnly(false); }
-        });
-    },
-
-    doCreate: function() {
-        var me = this;
-        var form = me.down('#createForm');
-        if (!form.isValid()) { return; }
-
         var nodeName = me.pveSelNode && me.pveSelNode.data ? me.pveSelNode.data.node : undefined;
         var bdf = me.deviceRecord ? me.deviceRecord.get('bdf') : null;
         if (!nodeName || !bdf) { return; }
 
-        var values = form.getValues();
+        var numVfsField = me.down('#numVfsField');
+        var newNumVfs = parseInt(numVfsField.getValue(), 10) || 0;
+        var currentNumVfs = me.deviceRecord ? (me.deviceRecord.get('sriov_numvfs') || 0) : 0;
+        var persist = me.down('#persistCb').getValue() ? 1 : 0;
+
+        // Compute lmem_per_vf (backend uses a single value for all VFs)
+        // Use the average of per-VF allocations, converted from GiB to bytes
+        var lmemParams = {};
+        if (newNumVfs > 0 && me.vfRows.length > 0) {
+            var totalLmemGib = 0;
+            me.vfRows.forEach(function(row) { totalLmemGib += row.lmemGib; });
+            var avgLmemBytes = Math.round((totalLmemGib / newNumVfs) * 1024 * 1024 * 1024);
+            lmemParams.lmem_per_vf = avgLmemBytes;
+        }
+
         me.setLoading(true);
 
-        Proxmox.Utils.API2Request({
-            url: '/nodes/' + encodeURIComponent(nodeName) +
-                 '/hardware/xpu/' + encodeURIComponent(bdf) + '/sriov',
-            method: 'POST',
-            params: values,
-            success: function() {
-                me.setLoading(false);
-                me.close();
-                me.fireEvent('vfscreated', me);
-            },
-            failure: function(response, opts, error) {
-                me.setLoading(false);
-                Ext.Msg.alert(gettext('Error'), Ext.String.format(
-                    gettext('Failed to create VFs: {0}'),
-                    error || response.htmlStatus
-                ));
-            }
-        });
+        var baseUrl = '/nodes/' + encodeURIComponent(nodeName) +
+                      '/hardware/xpu/' + encodeURIComponent(bdf) + '/sriov';
+
+        var doPost = function() {
+            var postParams = Ext.apply({ num_vfs: newNumVfs, persist: persist }, lmemParams);
+            Proxmox.Utils.API2Request({
+                url: baseUrl,
+                method: 'POST',
+                params: postParams,
+                success: function() {
+                    me.setLoading(false);
+                    me.close();
+                    me.fireEvent('vfsmodified', me);
+                },
+                failure: function(response, opts, error) {
+                    me.setLoading(false);
+                    Ext.Msg.alert(gettext('Error'), Ext.String.format(
+                        gettext('Failed to create VFs: {0}'),
+                        error || response.htmlStatus
+                    ));
+                }
+            });
+        };
+
+        if (newNumVfs !== currentNumVfs && currentNumVfs > 0) {
+            // Must DELETE first, then POST
+            Proxmox.Utils.API2Request({
+                url: baseUrl,
+                method: 'DELETE',
+                params: { remove_persist: persist },
+                success: function() {
+                    if (newNumVfs === 0) {
+                        me.setLoading(false);
+                        me.close();
+                        me.fireEvent('vfsmodified', me);
+                    } else {
+                        doPost();
+                    }
+                },
+                failure: function(response, opts, error) {
+                    me.setLoading(false);
+                    Ext.Msg.alert(gettext('Error'), Ext.String.format(
+                        gettext('Failed to remove VFs: {0}'),
+                        error || response.htmlStatus
+                    ));
+                }
+            });
+        } else if (newNumVfs > 0) {
+            doPost();
+        } else {
+            // newNumVfs === 0 and currentNumVfs === 0 — nothing to do
+            me.setLoading(false);
+            me.close();
+        }
     }
 });
 
@@ -1232,19 +1318,11 @@ Ext.define('PVE.panel.XpuSriovPanel', {
                 tbar: [
                     {
                         xtype: 'button',
-                        itemId: 'createVfsBtn',
-                        text: gettext('Create VFs'),
-                        iconCls: 'fa fa-plus',
+                        itemId: 'modifyVfsBtn',
+                        text: gettext('Modify VFs'),
+                        iconCls: 'fa fa-sliders',
                         disabled: true,
-                        handler: function() { me.openCreateDialog(); }
-                    },
-                    {
-                        xtype: 'button',
-                        itemId: 'removeVfsBtn',
-                        text: gettext('Remove All VFs'),
-                        iconCls: 'fa fa-trash',
-                        disabled: true,
-                        handler: function() { me.confirmRemoveVfs(); }
+                        handler: function() { me.openModifyDialog(); }
                     }
                 ]
             }
@@ -1265,8 +1343,7 @@ Ext.define('PVE.panel.XpuSriovPanel', {
         if (!capable) {
             me.disable();
             me.setTitle(gettext('SR-IOV Virtual Functions') + ' \u2014 ' + gettext('Not supported'));
-            me.down('#createVfsBtn').setDisabled(true);
-            me.down('#removeVfsBtn').setDisabled(true);
+            me.down('#modifyVfsBtn').setDisabled(true);
             me.down('#vfGrid').getStore().removeAll();
             return;
         }
@@ -1278,8 +1355,7 @@ Ext.define('PVE.panel.XpuSriovPanel', {
             me.enable();
             me.setTitle(gettext('SR-IOV Virtual Functions') + ' \u2014 ' +
                 Ext.String.format(gettext('GPU assigned to VM {0}'), pfVmid || '?'));
-            me.down('#createVfsBtn').setDisabled(true);
-            me.down('#removeVfsBtn').setDisabled(true);
+            me.down('#modifyVfsBtn').setDisabled(true);
             me.reloadVfs();
             return;
         }
@@ -1312,18 +1388,10 @@ Ext.define('PVE.panel.XpuSriovPanel', {
                     driftBanner.showDrift(data.drift);
                 }
 
-                // Enable/disable Create button based on SR-IOV capability
-                var createBtn = me.down('#createVfsBtn');
-                if (createBtn) {
-                    var numVfsCurrent = me.deviceRecord ? me.deviceRecord.get('sriov_numvfs') : 0;
-                    // Disable Create if VFs are already active (must remove first)
-                    createBtn.setDisabled(numVfsCurrent > 0);
-                }
-
-                var removeBtn = me.down('#removeVfsBtn');
-                var numVfs = me.deviceRecord ? me.deviceRecord.get('sriov_numvfs') : 0;
-                if (removeBtn) {
-                    removeBtn.setDisabled(!numVfs || numVfs === 0);
+                // Enable Modify VFs button when SR-IOV is capable and PF not assigned
+                var modifyBtn = me.down('#modifyVfsBtn');
+                if (modifyBtn) {
+                    modifyBtn.setDisabled(false);
                 }
             },
             failure: function(response, opts, error) {
@@ -1358,98 +1426,20 @@ Ext.define('PVE.panel.XpuSriovPanel', {
         });
     },
 
-    openCreateDialog: function() {
+    openModifyDialog: function() {
         var me = this;
-        var dlg = Ext.create('PVE.window.CreateVfsDialog', {
+        var dlg = Ext.create('PVE.window.ModifyVfsDialog', {
             pveSelNode: me.pveSelNode,
             deviceRecord: me.deviceRecord
         });
-        dlg.on('vfscreated', function() {
+        dlg.on('vfsmodified', function() {
             me.reloadVfs();
             me.fireEvent('vfschanged', me);
         });
         dlg.show();
-    },
-
-    confirmRemoveVfs: function() {
-        var me = this;
-        var numVfs = me.deviceRecord ? me.deviceRecord.get('sriov_numvfs') : 0;
-        var deviceName = me.deviceRecord ? me.deviceRecord.get('device_name') : '-';
-
-        Ext.create('Ext.window.Window', {
-            title: gettext('Remove Virtual Functions'),
-            modal: true,
-            width: 420,
-            layout: 'fit',
-            items: [
-                {
-                    xtype: 'form',
-                    bodyPadding: 12,
-                    items: [
-                        {
-                            xtype: 'component',
-                            html: '<i class="fa fa-exclamation-triangle" style="color:#f0a020;"></i> ' +
-                                  Ext.String.format(
-                                      gettext('Are you sure you want to remove all {0} virtual function(s) from {1}?'),
-                                      numVfs, Ext.htmlEncode(deviceName)
-                                  )
-                        },
-                        {
-                            xtype: 'checkbox',
-                            itemId: 'removePersistCb',
-                            fieldLabel: gettext('Also remove persistent boot configuration'),
-                            checked: true,
-                            inputValue: 1,
-                            uncheckedValue: 0,
-                            margin: '12 0 0 0'
-                        }
-                    ]
-                }
-            ],
-            buttons: [
-                {
-                    text: gettext('Cancel'),
-                    handler: function() { this.up('window').close(); }
-                },
-                {
-                    text: gettext('Remove VFs'),
-                    iconCls: 'fa fa-trash',
-                    handler: function() {
-                        var win = this.up('window');
-                        var removePersist = win.down('#removePersistCb').getValue();
-                        win.close();
-                        me.doRemoveVfs(removePersist);
-                    }
-                }
-            ]
-        }).show();
-    },
-
-    doRemoveVfs: function(removePersist) {
-        var me = this;
-        var nodeName = me.pveSelNode && me.pveSelNode.data ? me.pveSelNode.data.node : undefined;
-        var bdf = me.deviceRecord ? me.deviceRecord.get('bdf') : null;
-        if (!nodeName || !bdf) { return; }
-
-        me.setLoading(true);
-        Proxmox.Utils.API2Request({
-            url: '/nodes/' + encodeURIComponent(nodeName) +
-                 '/hardware/xpu/' + encodeURIComponent(bdf) + '/sriov',
-            method: 'DELETE',
-            params: { remove_persist: removePersist ? 1 : 0 },
-            success: function() {
-                me.setLoading(false);
-                me.reloadVfs();
-                me.fireEvent('vfschanged', me);
-            },
-            failure: function(response, opts, error) {
-                me.setLoading(false);
-                Ext.Msg.alert(gettext('Error'), Ext.String.format(
-                    gettext('Failed to remove VFs: {0}'),
-                    error || response.htmlStatus
-                ));
-            }
-        });
+        // Load current VF data from the grid store
+        var vfStore = me.down('#vfGrid').getStore();
+        dlg.loadVfData(vfStore);
     }
 });
 
