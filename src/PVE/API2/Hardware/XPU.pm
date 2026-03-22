@@ -1113,12 +1113,6 @@ __PACKAGE__->register_method({
             die "Pre-flight checks failed: " . join('; ', @failures) . "\n";
         }
 
-        # Ensure no VFs currently active
-        my $current_numvfs = int($rec->{sriov_numvfs});
-        if ($current_numvfs > 0) {
-            die "VFs already active ($current_numvfs). Remove them first.\n";
-        }
-
         my $exec_quantum_ms    = $param->{exec_quantum_ms}    // 20;
         my $preempt_timeout_us = $param->{preempt_timeout_us} // 1000;
         my $drivers_autoprobe  = $param->{drivers_autoprobe}  ? 1 : 0;
