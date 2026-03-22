@@ -1482,10 +1482,17 @@ Ext.define('PVE.panel.XpuSriovPanel', {
                     driftBanner.showDrift(data.drift);
                 }
 
-                // Enable Modify VFs button when SR-IOV is capable and PF not assigned
+                // Enable Modify VFs button only when no VFs are assigned to VMs
                 var modifyBtn = me.down('#modifyVfsBtn');
                 if (modifyBtn) {
-                    modifyBtn.setDisabled(false);
+                    var assignedVms = me.deviceRecord ? me.deviceRecord.get('assigned_vms') : [];
+                    var hasAssignedVfs = assignedVms && assignedVms.length > 0;
+                    modifyBtn.setDisabled(hasAssignedVfs);
+                    if (hasAssignedVfs) {
+                        modifyBtn.setTooltip(gettext('Cannot modify VFs while VMs are assigned. Stop and detach VMs first.'));
+                    } else {
+                        modifyBtn.setTooltip('');
+                    }
                 }
             },
             failure: function(response, opts, error) {
