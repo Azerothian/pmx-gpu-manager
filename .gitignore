@@ -26,3 +26,6 @@ test/e2e/playwright-report/
 .omc/
 .claude/
 .vscode/
+debian/pve-gpu-manager/
+debian/pve-gpu-manager.postrm.debhelper
+debian/pve-gpu-manager.substvars

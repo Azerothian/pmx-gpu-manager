@@ -1,7 +1,0 @@
-19f483124e2af57975b2d05269eff1fd  lib/systemd/system/pve-xpu-sriov.service
-5f56e9927b2be8f1c152369fda558edc  usr/lib/pve-xpu/apply-sriov-config.sh
-d62a6d2906e388adf57b25e887fbde68  usr/lib/pve-xpu/reapply-patches.sh
-9764384fa9122c29dd5ec0daeb8bd246  usr/share/doc/pve-gpu-manager/changelog.Debian.gz
-73bf0b2fa2f67719ac4736ac9553614c  usr/share/perl5/PVE/API2/Hardware/XPU.pm
-c5f428f7a0036e5941529df3c563a77e  usr/share/pve-manager/js/pve-xpu-plugin.js
-29faa263db261fdb440c5a2a0a34583c  usr/share/pve-xpu/xpu-vf-templates.conf
