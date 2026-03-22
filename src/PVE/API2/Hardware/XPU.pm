@@ -523,35 +523,76 @@ sub get_vf_paths {
 sub check_vf_vm_assignments {
     my ($bdf, $card, $num_vfs) = @_;
 
-    my @assigned;
+    # Build mapping name → BDF lookup from PVE resource mappings
+    my %mapping_to_bdf;
+    my $mapping_file = '/etc/pve/mapping/pci.cfg';
+    if (open(my $mfh, '<', $mapping_file)) {
+        my $current_name;
+        while (my $line = <$mfh>) {
+            chomp $line;
+            if ($line =~ /^(\S+)\s*$/) {
+                $current_name = $1;
+            } elsif ($line =~ /^\s+map\s+.*path=([0-9a-fA-F:\.]+)/ && defined $current_name) {
+                $mapping_to_bdf{$current_name} = $1;
+            }
+        }
+        close($mfh);
+    }
 
+    # Collect all VF BDFs
+    my %vf_bdf_to_index;
     for my $vf_index (1 .. $num_vfs) {
-        # Resolve VF BDF via virtfnN symlink (0-based index)
         my $virtfn_link = sysfs_path(
             "/sys/bus/pci/devices/$bdf/virtfn" . ($vf_index - 1)
         );
         my $vf_target = readlink($virtfn_link);
         next unless defined $vf_target;
         my $vf_bdf = basename($vf_target);
+        $vf_bdf_to_index{$vf_bdf} = $vf_index;
+    }
 
-        # Search VM configs for this PCI address
-        my @conf_files = bsd_glob('/etc/pve/qemu-server/*.conf');
-        for my $conf (@conf_files) {
-            my ($vmid) = basename($conf) =~ /^(\d+)\.conf$/;
-            next unless defined $vmid;
-            open(my $fh, '<', $conf) or next;
-            while (my $line = <$fh>) {
-                if ($line =~ /^hostpci\d+:/ && $line =~ /\Q$vf_bdf\E/) {
-                    push @assigned, {
-                        vf_index => $vf_index,
-                        bdf      => $vf_bdf,
-                        vmid     => int($vmid),
-                    };
-                    last;
-                }
+    my @assigned;
+    my @conf_files = bsd_glob('/etc/pve/qemu-server/*.conf');
+    for my $conf (@conf_files) {
+        my ($vmid) = basename($conf) =~ /^(\d+)\.conf$/;
+        next unless defined $vmid;
+        open(my $fh, '<', $conf) or next;
+        while (my $line = <$fh>) {
+            next unless $line =~ /^hostpci\d+:\s*(.+)/;
+            my $val = $1;
+            chomp $val;
+
+            my $resolved_bdf;
+            if ($val =~ /mapping=(\S+)/) {
+                # Resolve resource mapping to BDF
+                my $name = $1;
+                $name =~ s/,.*//;  # strip trailing options
+                $resolved_bdf = $mapping_to_bdf{$name};
+            } else {
+                # Direct BDF reference (strip options after comma)
+                ($resolved_bdf) = $val =~ /^([0-9a-fA-F:\.]+)/;
             }
-            close($fh);
+
+            next unless defined $resolved_bdf;
+
+            # Check if this BDF matches any of our VFs
+            if (exists $vf_bdf_to_index{$resolved_bdf}) {
+                push @assigned, {
+                    vf_index => $vf_bdf_to_index{$resolved_bdf},
+                    bdf      => $resolved_bdf,
+                    vmid     => int($vmid),
+                };
+            }
+            # Also check if PF itself is assigned (whole GPU passthrough)
+            if ($resolved_bdf eq $bdf) {
+                push @assigned, {
+                    vf_index => 0,
+                    bdf      => $resolved_bdf,
+                    vmid     => int($vmid),
+                };
+            }
         }
+        close($fh);
     }
 
     return \@assigned;
@@ -687,7 +728,8 @@ sub _collect_device {
     # Get VMs assigned to this GPU's VFs
     if (int($sriov_numvfs) > 0 && defined $card) {
         my $assigned = check_vf_vm_assignments($bdf, $card, int($sriov_numvfs));
-        my @vm_ids = map { $_->{vmid} } @$assigned;
+        my %seen;
+        my @vm_ids = grep { !$seen{$_}++ } map { $_->{vmid} } @$assigned;
         $record->{assigned_vms} = \@vm_ids;
     } else {
         $record->{assigned_vms} = [];
