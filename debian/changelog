@@ -1,4 +1,4 @@
-pve-xpu-manager (1.0.0-1) stable; urgency=medium
+pve-gpu-manager (1.0.0-1) stable; urgency=medium
 
   * Initial release
   * Intel GPU discovery and identification (Flex, PVC, BMG)

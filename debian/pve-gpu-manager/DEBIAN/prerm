@@ -1,0 +1,62 @@
+#!/bin/sh
+# prerm: restore original PVE files and disable systemd service
+set -e
+
+INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
+HARDWARE_PM="/usr/share/perl5/PVE/API2/Hardware.pm"
+
+log() {
+    logger -t pve-xpu-prerm "$@" || true
+    echo "pve-xpu-prerm: $*"
+}
+
+restore_backup() {
+    local file="$1"
+    local backup="${file}.pre-xpu"
+    if [ -f "$backup" ]; then
+        cp -p "$backup" "$file"
+        chmod 644 "$file" 2>/dev/null || true
+        log "Restored $file from $backup"
+    else
+        log "No backup found for $file, skipping restore"
+    fi
+}
+
+disable_service() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop pve-xpu-sriov.service 2>/dev/null || true
+        systemctl disable pve-xpu-sriov.service 2>/dev/null || true
+        log "Disabled pve-xpu-sriov.service"
+    fi
+}
+
+restart_pveproxy() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart pveproxy 2>/dev/null || log "WARNING: Failed to restart pveproxy"
+        log "Restarted pveproxy"
+    fi
+}
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        restore_backup "$INDEX_TPL"
+        restore_backup "$HARDWARE_PM"
+        disable_service
+        restart_pveproxy
+        ;;
+    failed-upgrade)
+        ;;
+    *)
+        echo "prerm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -d /run/systemd/system ] ; then
+	deb-systemd-invoke stop 'pve-xpu-sriov.service' >/dev/null || true
+fi
+# End automatically added section
+
+
+exit 0

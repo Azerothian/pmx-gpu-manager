@@ -319,20 +319,20 @@ wait_for_ssh 180
 log "Building plugin"
 cd "$PROJECT_ROOT"
 make deb 2>&1 | tail -3
-DEB=$(ls -t "$PROJECT_ROOT"/../pve-xpu-manager_*.deb 2>/dev/null | head -1)
+DEB=$(ls -t "$PROJECT_ROOT"/../pve-gpu-manager_*.deb 2>/dev/null | head -1)
 [ -f "$DEB" ] || die "No .deb found after build"
 info "Built: $(basename "$DEB")"
 
 log "Deploying plugin to VM"
 # Purge any existing install first for clean state
-ssh_cmd "dpkg -r pve-xpu-manager 2>/dev/null; dpkg --purge pve-xpu-manager 2>/dev/null; true"
+ssh_cmd "dpkg -r pve-gpu-manager 2>/dev/null; dpkg --purge pve-gpu-manager 2>/dev/null; true"
 sleep 2
 scp_cmd "$DEB" root@localhost:/tmp/
 ssh_cmd "dpkg -i /tmp/$(basename "$DEB")"
 # Wait for postinst service restarts to settle
 sleep 5
 # Verify install succeeded
-ssh_cmd "dpkg -s pve-xpu-manager | grep -q 'Status: install ok installed'" || die "Package install failed"
+ssh_cmd "dpkg -s pve-gpu-manager | grep -q 'Status: install ok installed'" || die "Package install failed"
 info "Plugin installed"
 
 # ---------------------------------------------------------------------------
@@ -473,7 +473,7 @@ fi
 
 echo ""
 echo "--- Uninstall ---"
-run_test "Uninstall plugin" "dpkg -r pve-xpu-manager"
+run_test "Uninstall plugin" "dpkg -r pve-gpu-manager"
 run_test "Module removed" "test ! -f /usr/share/perl5/PVE/API2/Hardware/XPU.pm"
 run_test "JS patch reverted" "! grep -q pve-xpu-plugin /usr/share/pve-manager/index.html.tpl"
 run_test "Hardware.pm reverted" "! grep -q 'PVE::API2::Hardware::XPU' /usr/share/perl5/PVE/API2/Hardware.pm"

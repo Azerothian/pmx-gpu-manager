@@ -1,13 +1,11 @@
-Source: pve-gpu-manager
+Package: pve-gpu-manager
+Version: 1.0.0-1
+Architecture: all
+Maintainer: PVE XPU Manager <pve-xpu@localhost>
+Installed-Size: 165
+Depends: pve-manager (>= 8.0), perl, libpve-common-perl, pciutils, linux-perf
 Section: admin
 Priority: optional
-Maintainer: PVE XPU Manager <pve-xpu@localhost>
-Build-Depends: debhelper (>= 12)
-Standards-Version: 4.5.1
-
-Package: pve-gpu-manager
-Architecture: all
-Depends: pve-manager (>= 8.0), perl, libpve-common-perl, pciutils, linux-perf, ${misc:Depends}
 Description: GPU Manager for Proxmox VE
  Provides discovery, monitoring, and SR-IOV virtual function management
  for Intel discrete GPUs (Flex/ATS-M, Ponte Vecchio, Battlemage) in
