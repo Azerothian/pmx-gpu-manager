@@ -517,6 +517,58 @@ sub get_vf_paths {
 }
 
 # ---------------------------------------------------------------------------
+# Check if a specific BDF is assigned to any VM (direct or via mapping)
+# Returns vmid if assigned, undef otherwise
+# ---------------------------------------------------------------------------
+sub _find_bdf_vm_assignment {
+    my ($target_bdf) = @_;
+
+    # Build mapping name → BDF lookup
+    my %mapping_to_bdf;
+    my $mapping_file = '/etc/pve/mapping/pci.cfg';
+    if (open(my $mfh, '<', $mapping_file)) {
+        my $current_name;
+        while (my $line = <$mfh>) {
+            chomp $line;
+            if ($line =~ /^(\S+)\s*$/) {
+                $current_name = $1;
+            } elsif ($line =~ /^\s+map\s+.*path=([0-9a-fA-F:\.]+)/ && defined $current_name) {
+                $mapping_to_bdf{$current_name} = $1;
+            }
+        }
+        close($mfh);
+    }
+
+    my @conf_files = bsd_glob('/etc/pve/qemu-server/*.conf');
+    for my $conf (@conf_files) {
+        my ($vmid) = basename($conf) =~ /^(\d+)\.conf$/;
+        next unless defined $vmid;
+        open(my $fh, '<', $conf) or next;
+        while (my $line = <$fh>) {
+            next unless $line =~ /^hostpci\d+:\s*(.+)/;
+            my $val = $1;
+            chomp $val;
+
+            my $resolved_bdf;
+            if ($val =~ /mapping=(\S+)/) {
+                my $name = $1;
+                $name =~ s/,.*//;
+                $resolved_bdf = $mapping_to_bdf{$name};
+            } else {
+                ($resolved_bdf) = $val =~ /^([0-9a-fA-F:\.]+)/;
+            }
+
+            if (defined $resolved_bdf && $resolved_bdf eq $target_bdf) {
+                close($fh);
+                return int($vmid);
+            }
+        }
+        close($fh);
+    }
+    return undef;
+}
+
+# ---------------------------------------------------------------------------
 # Check VF→VM assignments
 # Returns arrayref of { vf_index, bdf, vmid } for assigned VFs
 # ---------------------------------------------------------------------------
@@ -725,14 +777,22 @@ sub _collect_device {
         persisted        => $persisted,
     };
 
+    # Check if PF itself is assigned to a VM (whole-GPU passthrough)
+    my $pf_vm = _find_bdf_vm_assignment($bdf);
+    $record->{pf_assigned} = defined $pf_vm ? \1 : \0;
+    $record->{pf_vmid} = $pf_vm;
+
     # Get VMs assigned to this GPU's VFs
     if (int($sriov_numvfs) > 0 && defined $card) {
         my $assigned = check_vf_vm_assignments($bdf, $card, int($sriov_numvfs));
         my %seen;
-        my @vm_ids = grep { !$seen{$_}++ } map { $_->{vmid} } @$assigned;
+        # Include PF VM if assigned
+        $seen{$pf_vm} = 1 if defined $pf_vm;
+        my @vm_ids = defined $pf_vm ? ($pf_vm) : ();
+        push @vm_ids, grep { !$seen{$_}++ } map { $_->{vmid} } @$assigned;
         $record->{assigned_vms} = \@vm_ids;
     } else {
-        $record->{assigned_vms} = [];
+        $record->{assigned_vms} = defined $pf_vm ? [$pf_vm] : [];
     }
 
     # Read GuC firmware version from debugfs

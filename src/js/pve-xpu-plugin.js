@@ -74,7 +74,9 @@ Ext.define('PVE.store.XpuDevices', {
         { name: 'persisted', type: 'boolean' },
         'telemetry',
         'firmware_version',
-        { name: 'assigned_vms', type: 'auto' }
+        { name: 'assigned_vms', type: 'auto' },
+        { name: 'pf_assigned', type: 'boolean' },
+        { name: 'pf_vmid', type: 'auto' }
     ],
 
     proxy: {
@@ -1266,6 +1268,19 @@ Ext.define('PVE.panel.XpuSriovPanel', {
             me.down('#createVfsBtn').setDisabled(true);
             me.down('#removeVfsBtn').setDisabled(true);
             me.down('#vfGrid').getStore().removeAll();
+            return;
+        }
+
+        // Disable SR-IOV management when PF is assigned to a VM (whole-GPU passthrough)
+        var pfAssigned = deviceRecord.get('pf_assigned');
+        var pfVmid = deviceRecord.get('pf_vmid');
+        if (pfAssigned) {
+            me.enable();
+            me.setTitle(gettext('SR-IOV Virtual Functions') + ' \u2014 ' +
+                Ext.String.format(gettext('GPU assigned to VM {0}'), pfVmid || '?'));
+            me.down('#createVfsBtn').setDisabled(true);
+            me.down('#removeVfsBtn').setDisabled(true);
+            me.reloadVfs();
             return;
         }
 
