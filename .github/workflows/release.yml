@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y debhelper perl
+
+      - name: Run unit tests
+        run: prove -r t/
+
+      - name: Build .deb package
+        run: make deb
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PVE XPU/GPU Manager v${{ steps.version.outputs.version }}"
+          body: |
+            ## PVE XPU/GPU Manager v${{ steps.version.outputs.version }}
+
+            Intel discrete GPU management plugin for Proxmox VE 8.x / 9.x.
+
+            ### Installation
+            ```bash
+            # Download the .deb
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/pve-xpu-manager_${{ steps.version.outputs.version }}_all.deb
+
+            # Install
+            dpkg -i pve-xpu-manager_${{ steps.version.outputs.version }}_all.deb
+            ```
+
+            ### Uninstall
+            ```bash
+            dpkg -r pve-xpu-manager
+            ```
+          files: |
+            ../*.deb
+          draft: false
+          prerelease: false

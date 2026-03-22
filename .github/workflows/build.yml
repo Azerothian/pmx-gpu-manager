@@ -1,0 +1,36 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y debhelper perl
+
+      - name: Run unit tests
+        run: prove -r t/
+
+      - name: Build .deb package
+        run: make deb
+
+      - name: Verify package
+        run: |
+          DEB=$(ls ../*.deb | head -1)
+          echo "Package: $DEB"
+          dpkg-deb -I "$DEB"
+          dpkg-deb -c "$DEB"
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pve-xpu-manager-deb
+          path: ../*.deb
+          retention-days: 30
