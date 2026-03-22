@@ -1101,25 +1101,38 @@ Ext.define('PVE.window.ModifyVfsDialog', {
         var oldCount = me.vfRows.length;
 
         if (newCount > oldCount) {
-            // Add new VF rows with equal share of remaining LMEM
-            var usedGib = 0;
-            me.vfRows.forEach(function(r) { usedGib += r.lmemGib; });
-            var remaining = me.lmemTotalGib - usedGib;
-            var toAdd = newCount - oldCount;
-            var shareEach = toAdd > 0 && remaining > 0 ? remaining / toAdd : 0.125;
-            shareEach = Math.max(shareEach, 0.125); // minimum 128MB per VF
+            // Add new VF rows (placeholder, will be redistributed below)
             for (var i = oldCount + 1; i <= newCount; i++) {
                 me.vfRows.push({
                     vfIndex: i,
-                    lmemGib: Math.floor(shareEach * 100) / 100,
+                    lmemGib: 0,
                     assigned: false,
                     vmid: null
                 });
             }
         } else if (newCount < oldCount) {
-            // Remove trailing unassigned VFs only
+            // Remove trailing VFs
             me.vfRows = me.vfRows.slice(0, newCount);
         }
+
+        // Redistribute all available LMEM evenly among unassigned VFs
+        var assignedLmem = 0;
+        var unassignedCount = 0;
+        me.vfRows.forEach(function(r) {
+            if (r.assigned) {
+                assignedLmem += r.lmemGib;
+            } else {
+                unassignedCount++;
+            }
+        });
+        var availableLmem = me.lmemTotalGib - assignedLmem;
+        var shareEach = unassignedCount > 0 ? availableLmem / unassignedCount : 0;
+        shareEach = Math.max(Math.floor(shareEach * 100) / 100, 0.125);
+        me.vfRows.forEach(function(r) {
+            if (!r.assigned) {
+                r.lmemGib = shareEach;
+            }
+        });
 
         me.rebuildVfRows();
     },
