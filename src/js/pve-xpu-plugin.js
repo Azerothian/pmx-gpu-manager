@@ -1389,7 +1389,7 @@ Ext.define('PVE.panel.XpuSriovPanel', {
                         }
                     },
                     {
-                        header: gettext('GGTT'), dataIndex: 'ggtt_quota', width: 120,
+                        header: gettext('Page Size'), dataIndex: 'ggtt_quota', width: 120,
                         renderer: function(val) {
                             var n = Number(val);
                             return (n > 0) ? xpuFormatBytes(n) : '-';
