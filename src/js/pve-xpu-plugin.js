@@ -72,7 +72,9 @@ Ext.define('PVE.store.XpuDevices', {
         { name: 'sriov_totalvfs', type: 'int' },
         { name: 'sriov_numvfs', type: 'int' },
         { name: 'persisted', type: 'boolean' },
-        'telemetry'
+        'telemetry',
+        'firmware_version',
+        { name: 'assigned_vms', type: 'auto' }
     ],
 
     proxy: {
@@ -108,73 +110,151 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
             header: gettext('Device'),
             dataIndex: 'device_name',
             flex: 1,
-            minWidth: 200
+            minWidth: 180
         },
         {
             header: gettext('BDF'),
             dataIndex: 'bdf',
-            width: 140,
+            width: 130,
             renderer: function(val) {
                 return '<span class="x-monospace">' + Ext.htmlEncode(val) + '</span>';
             }
         },
         {
-            header: gettext('Device ID'),
-            dataIndex: 'device_id',
-            width: 100
-        },
-        {
-            header: gettext('Temperature'),
+            header: gettext('GPU Core'),
             dataIndex: 'telemetry',
-            width: 110,
+            width: 80,
+            align: 'center',
             renderer: function(telemetry) {
                 if (!telemetry || telemetry.temperature_c === null || telemetry.temperature_c === undefined) {
                     return '-';
                 }
                 var t = telemetry.temperature_c;
                 var colour = xpuTempColour(t);
-                return '<span style="color:' + colour + ';font-weight:bold;">' + t + ' \u00b0C</span>';
+                return '<span style="color:' + colour + ';font-weight:bold;">' + t + '\u00b0C</span>';
+            }
+        },
+        {
+            header: gettext('GPU Mem'),
+            dataIndex: 'telemetry',
+            width: 80,
+            align: 'center',
+            renderer: function(telemetry) {
+                if (!telemetry || telemetry.mem_temperature_c === null || telemetry.mem_temperature_c === undefined) {
+                    return '-';
+                }
+                var t = telemetry.mem_temperature_c;
+                var colour = xpuTempColour(t);
+                return '<span style="color:' + colour + ';font-weight:bold;">' + t + '\u00b0C</span>';
+            }
+        },
+        {
+            header: gettext('Power'),
+            dataIndex: 'telemetry',
+            width: 70,
+            align: 'center',
+            renderer: function(telemetry) {
+                if (!telemetry) { return '-'; }
+                if (telemetry.power_w !== null && telemetry.power_w !== undefined) {
+                    return telemetry.power_w + 'W';
+                }
+                if (telemetry.power_tdp_w) {
+                    return '<span style="color:#888;">' + telemetry.power_tdp_w + 'W</span>';
+                }
+                return '-';
+            }
+        },
+        {
+            header: gettext('Freq'),
+            dataIndex: 'telemetry',
+            width: 90,
+            align: 'center',
+            renderer: function(telemetry) {
+                if (!telemetry || !telemetry.clock_mhz) { return '-'; }
+                var text = telemetry.clock_mhz + ' MHz';
+                if (telemetry.clock_max_mhz && telemetry.clock_max_mhz !== telemetry.clock_mhz) {
+                    text += ' / ' + telemetry.clock_max_mhz;
+                }
+                return text;
             }
         },
         {
             header: gettext('VRAM'),
             dataIndex: 'telemetry',
-            width: 160,
+            width: 140,
             renderer: function(telemetry) {
                 if (!telemetry || telemetry.lmem_total_mb === null || telemetry.lmem_total_mb === undefined) {
                     return '-';
                 }
                 var total = telemetry.lmem_total_mb;
-                var alloc = telemetry.lmem_alloc_mb || 0;
+                var used = telemetry.lmem_used_mb || 0;
                 var totalGiB = (total / 1024).toFixed(1);
-                var allocGiB = (alloc / 1024).toFixed(1);
-                var pct = total > 0 ? Math.round((alloc / total) * 100) : 0;
+                var usedGiB = (used / 1024).toFixed(1);
+                var pct = total > 0 ? Math.round((used / total) * 100) : 0;
                 var colour = pct > 80 ? '#e84040' : (pct > 50 ? '#f0a020' : '#26a826');
-                return '<span style="color:' + colour + ';">' + allocGiB + ' / ' + totalGiB + ' GiB (' + pct + '%)</span>';
+                return '<span style="color:' + colour + ';">' + usedGiB + '/' + totalGiB + ' GiB</span>';
+            }
+        },
+        {
+            header: gettext('Fan'),
+            dataIndex: 'telemetry',
+            width: 70,
+            align: 'center',
+            renderer: function(telemetry) {
+                if (!telemetry || telemetry.fan_rpm === null || telemetry.fan_rpm === undefined) { return '-'; }
+                return telemetry.fan_rpm + ' rpm';
+            }
+        },
+        {
+            header: gettext('Health'),
+            dataIndex: 'telemetry',
+            width: 70,
+            align: 'center',
+            renderer: function(telemetry) {
+                if (!telemetry || !telemetry.health) { return '-'; }
+                if (telemetry.health === 'OK') {
+                    return '<span style="color:#26a826;"><i class="fa fa-check-circle"></i> OK</span>';
+                }
+                return '<span style="color:#e84040;"><i class="fa fa-exclamation-triangle"></i></span>';
+            }
+        },
+        {
+            header: gettext('Max VFs'),
+            dataIndex: 'sriov_totalvfs',
+            width: 60,
+            align: 'center'
+        },
+        {
+            header: gettext('VMs'),
+            dataIndex: 'assigned_vms',
+            width: 100,
+            renderer: function(vms) {
+                if (!vms || !vms.length) { return '\u2014'; }
+                return vms.join(', ');
             }
         },
         {
             header: gettext('SR-IOV'),
             dataIndex: 'bdf',
-            width: 150,
+            width: 120,
             renderer: function(val, meta, record) {
                 var capable = record.get('sriov_capable') || record.get('sriov_totalvfs') > 0;
                 if (!capable) {
-                    return '<span style="color:#888;">' + gettext('Not supported') + '</span>';
+                    return '<span style="color:#888;">' + gettext('N/A') + '</span>';
                 }
                 var numVfs = record.get('sriov_numvfs');
                 if (numVfs > 0) {
                     return '<span style="color:#26a826;">' +
-                        Ext.String.format(gettext('Active ({0} VFs)'), numVfs) +
+                        Ext.String.format(gettext('{0} VFs'), numVfs) +
                         '</span>';
                 }
-                return '<span style="color:#f0a020;">' + gettext('Capable') + '</span>';
+                return '<span style="color:#f0a020;">' + gettext('Ready') + '</span>';
             }
         },
         {
             header: gettext('Persisted'),
             dataIndex: 'persisted',
-            width: 80,
+            width: 70,
             align: 'center',
             renderer: function(val) {
                 if (val) {
@@ -264,6 +344,7 @@ Ext.define('PVE.panel.XpuPropertiesCard', {
 
     title: gettext('Properties'),
     bodyPadding: 8,
+    scrollable: 'y',
 
     tpl: [
         '<table class="xpu-props-table">',
@@ -307,8 +388,8 @@ Ext.define('PVE.panel.XpuPropertiesCard', {
             { label: gettext('Render Node'), value: Ext.htmlEncode(data.drm_render || '-') },
             { label: gettext('NUMA Node'), value: data.numa_node !== undefined ? String(data.numa_node) : '-' },
             { label: gettext('Tiles'), value: data.tiles !== undefined ? String(data.tiles) : '-' },
-            { label: gettext('Max VFs'), value: data.sriov_totalvfs !== undefined ? String(data.sriov_totalvfs) : '-' },
-            { label: gettext('Active VFs'), value: data.sriov_numvfs !== undefined ? String(data.sriov_numvfs) : '-' }
+            { label: gettext('SR-IOV Max VFs'), value: data.sriov_totalvfs !== undefined ? String(data.sriov_totalvfs) : '-' },
+            { label: gettext('SR-IOV Active VFs'), value: data.sriov_numvfs !== undefined ? String(data.sriov_numvfs) : '-' }
         ];
         me.down('#propsView').getStore().loadData(rows);
     }
@@ -385,6 +466,59 @@ Ext.define('PVE.panel.XpuTelemetryCard', {
                     {
                         xtype: 'label',
                         text: 'Watts',
+                        style: 'font-size:10px;color:#888;'
+                    }
+                ]
+            },
+            // Clock rate column
+            {
+                xtype: 'container',
+                itemId: 'clockCol',
+                flex: 1,
+                padding: '0 8',
+                layout: { type: 'vbox', align: 'stretch' },
+                items: [
+                    {
+                        xtype: 'label',
+                        text: gettext('Clock'),
+                        style: 'font-weight:bold;margin-bottom:4px;'
+                    },
+                    {
+                        xtype: 'label',
+                        itemId: 'clockVal',
+                        text: '-',
+                        style: 'font-size:22px;font-weight:bold;'
+                    },
+                    {
+                        xtype: 'label',
+                        itemId: 'clockMax',
+                        text: '',
+                        style: 'font-size:10px;color:#888;'
+                    }
+                ]
+            },
+            // Fan speed column
+            {
+                xtype: 'container',
+                itemId: 'fanCol',
+                flex: 1,
+                padding: '0 8',
+                layout: { type: 'vbox', align: 'stretch' },
+                items: [
+                    {
+                        xtype: 'label',
+                        text: gettext('Fan'),
+                        style: 'font-weight:bold;margin-bottom:4px;'
+                    },
+                    {
+                        xtype: 'label',
+                        itemId: 'fanVal',
+                        text: '-',
+                        style: 'font-size:22px;font-weight:bold;'
+                    },
+                    {
+                        xtype: 'label',
+                        text: 'RPM',
                         style: 'font-size:10px;color:#888;'
                     }
                 ]
@@ -494,22 +628,48 @@ Ext.define('PVE.panel.XpuTelemetryCard', {
         var powerVal = me.down('#powerVal');
         if (powerVal) {
             var pw = telemetry.power_w;
-            powerVal.setText(pw !== null && pw !== undefined ? pw.toFixed(1) : '-');
+            if (pw !== null && pw !== undefined) {
+                powerVal.setText(String(pw));
+            } else if (telemetry.power_tdp_w) {
+                powerVal.setText(telemetry.power_tdp_w + ' (TDP)');
+            } else {
+                powerVal.setText('-');
+            }
         }
 
-        // Memory bar
+        // Clock rate
+        var clockVal = me.down('#clockVal');
+        var clockMax = me.down('#clockMax');
+        if (clockVal) {
+            var mhz = telemetry.clock_mhz;
+            clockVal.setText(mhz !== null && mhz !== undefined ? mhz + ' MHz' : '-');
+        }
+        if (clockMax) {
+            var maxMhz = telemetry.clock_max_mhz;
+            clockMax.setText(maxMhz ? 'Max: ' + maxMhz + ' MHz' : '');
+        }
+
+        // Fan speed
+        var fanVal = me.down('#fanVal');
+        if (fanVal) {
+            var rpm = telemetry.fan_rpm;
+            fanVal.setText(rpm !== null && rpm !== undefined ? String(rpm) : '-');
+        }
+
+        // Memory bar (uses lmem_total_mb and lmem_used_mb from backend)
         var memBar = me.down('#memBar');
         var memRange = me.down('#memRange');
-        var total = telemetry.lmem_total_bytes;
-        var free = telemetry.lmem_free_bytes;
-        if (memBar && total !== null && total !== undefined && total > 0) {
-            var used = total - (free || 0);
-            var memPct = Math.min(used / total, 1);
-            var memText = xpuFormatBytes(used) + ' / ' + xpuFormatBytes(total) +
-                          ' (' + Math.round(memPct * 100) + '%)';
+        var totalMb = telemetry.lmem_total_mb;
+        var usedMb = telemetry.lmem_used_mb;
+        if (memBar && totalMb !== null && totalMb !== undefined && totalMb > 0) {
+            var used = usedMb || 0;
+            var memPct = Math.min(used / totalMb, 1);
+            var totalGiB = (totalMb / 1024).toFixed(1);
+            var usedGiB = (used / 1024).toFixed(1);
+            var memText = usedGiB + ' GiB / ' + totalGiB + ' GiB (' + Math.round(memPct * 100) + '%)';
             memBar.updateProgress(memPct, memText);
             if (memRange) {
-                memRange.setText('0  \u2015  ' + xpuFormatBytes(total));
+                memRange.setText('0  \u2015  ' + totalGiB + ' GiB');
             }
         }
     },
@@ -520,6 +680,12 @@ Ext.define('PVE.panel.XpuTelemetryCard', {
         if (tempBar) { tempBar.updateProgress(0, '-'); }
         var powerVal = me.down('#powerVal');
         if (powerVal) { powerVal.setText('-'); }
+        var clockVal = me.down('#clockVal');
+        if (clockVal) { clockVal.setText('-'); }
+        var clockMax = me.down('#clockMax');
+        if (clockMax) { clockMax.setText(''); }
+        var fanVal = me.down('#fanVal');
+        if (fanVal) { fanVal.setText('-'); }
         var memBar = me.down('#memBar');
         if (memBar) { memBar.updateProgress(0, '-'); }
     }
@@ -1429,7 +1595,7 @@ Ext.define('PVE.node.XpuManagerOverride', {
         // in both the tree navigation and the card layout
         me.insertNodes([{
             xtype: 'pveXpuManager',
-            title: gettext('XPU/GPU'),
+            title: gettext('GPU'),
             iconCls: 'fa fa-microchip',
             itemId: 'xpugpu',
             pveSelNode: me.pveSelNode,

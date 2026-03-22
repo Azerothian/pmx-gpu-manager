@@ -164,31 +164,58 @@ sub identify_device {
 sub read_telemetry {
     my ($card, $bdf) = @_;
     my $result = {
-        temperature_c  => undef,
-        power_w        => undef,
-        lmem_total_mb  => undef,
-        lmem_alloc_mb  => undef,
+        temperature_c      => undef,
+        mem_temperature_c  => undef,
+        power_w            => undef,
+        power_tdp_w        => undef,
+        clock_mhz          => undef,
+        clock_max_mhz      => undef,
+        lmem_total_mb      => undef,
+        lmem_used_mb       => undef,
+        fan_rpm            => undef,
+        throttled          => undef,
+        health             => 'OK',
     };
 
-    # Temperature: hwmon/hwmon*/temp*_input (millidegrees -> °C)
+    # Temperature: read all hwmon temp sensors, match by label
     my $hwmon_base = sysfs_path("/sys/class/drm/$card/device/hwmon");
     my @hwmon_dirs = bsd_glob("$hwmon_base/hwmon*");
-    HWMON: for my $hwmon_dir (@hwmon_dirs) {
+    my $got_labeled_temp = 0;
+    for my $hwmon_dir (@hwmon_dirs) {
         my @temp_files = bsd_glob("$hwmon_dir/temp*_input");
         for my $tf (@temp_files) {
+            (my $label_file = $tf) =~ s/_input$/_label/;
+            my $label = '';
+            if (open(my $lfh, '<', $label_file)) {
+                $label = <$lfh>;
+                chomp $label if defined $label;
+                close($lfh);
+            }
+
             open(my $fh, '<', $tf) or next;
             my $val = <$fh>;
             close($fh);
-            if (defined $val) {
-                chomp $val;
-                $result->{temperature_c} = $val / 1000.0;
-                last HWMON;
+            next unless defined $val;
+            chomp $val;
+            my $temp = $val / 1000.0;
+
+            if ($label eq 'pkg' || $label eq 'GPU') {
+                $result->{temperature_c} = $temp;
+                $got_labeled_temp = 1;
+            } elsif ($label eq 'vram' || $label eq 'Memory') {
+                $result->{mem_temperature_c} = $temp;
+                $got_labeled_temp = 1;
+            } elsif (!$got_labeled_temp && !defined $result->{temperature_c}) {
+                # Fallback: first temp sensor if no labels
+                $result->{temperature_c} = $temp;
             }
         }
     }
 
-    # Power: hwmon/hwmon*/power*_input (microwatts -> W)
-    POWER: for my $hwmon_dir (@hwmon_dirs) {
+    # Power: try power*_input (i915, microwatts -> W) first,
+    # then compute from energy*_input delta (xe driver, microjoules)
+    HWMON_POWER: for my $hwmon_dir (@hwmon_dirs) {
+        # Method 1: direct power reading (i915)
         my @pwr_files = bsd_glob("$hwmon_dir/power*_input");
         for my $pf (@pwr_files) {
             open(my $fh, '<', $pf) or next;
@@ -196,39 +223,109 @@ sub read_telemetry {
             close($fh);
             if (defined $val) {
                 chomp $val;
-                $result->{power_w} = $val / 1_000_000.0;
-                last POWER;
+                $result->{power_w} = sprintf("%.1f", $val / 1_000_000.0);
+                last HWMON_POWER;
+            }
+        }
+
+        # Method 2: energy counter delta (xe driver)
+        my @energy_files = bsd_glob("$hwmon_dir/energy1_input");
+        for my $ef (@energy_files) {
+            open(my $fh1, '<', $ef) or next;
+            my $e1 = <$fh1>;
+            close($fh1);
+            chomp $e1 if defined $e1;
+            next unless defined $e1 && $e1 =~ /^\d+$/;
+
+            # Brief sleep for delta measurement
+            select(undef, undef, undef, 0.1);  # 100ms
+
+            open(my $fh2, '<', $ef) or next;
+            my $e2 = <$fh2>;
+            close($fh2);
+            chomp $e2 if defined $e2;
+            next unless defined $e2 && $e2 =~ /^\d+$/;
+
+            my $delta_uj = $e2 - $e1;
+            if ($delta_uj > 0) {
+                # delta_uj / 0.1s = microwatts, convert to watts
+                $result->{power_w} = sprintf("%.1f", ($delta_uj / 100_000.0));
+                last HWMON_POWER;
+            }
+        }
+
+        # Method 3: TDP from power1_cap (fallback)
+        if (!defined $result->{power_w}) {
+            my @cap_files = bsd_glob("$hwmon_dir/power1_cap");
+            for my $cf (@cap_files) {
+                open(my $fh, '<', $cf) or next;
+                my $val = <$fh>;
+                close($fh);
+                if (defined $val) {
+                    chomp $val;
+                    $result->{power_tdp_w} = sprintf("%.0f", $val / 1_000_000.0);
+                    last;
+                }
             }
         }
     }
 
-    # VRAM total: from debugfs vram0_mm (size line, in bytes)
+    # Fan speed: hwmon/hwmon*/fan*_input (RPM)
+    for my $hwmon_dir (@hwmon_dirs) {
+        my @fan_files = bsd_glob("$hwmon_dir/fan*_input");
+        for my $ff (@fan_files) {
+            open(my $fh, '<', $ff) or next;
+            my $val = <$fh>;
+            close($fh);
+            if (defined $val) {
+                chomp $val;
+                $result->{fan_rpm} = int($val) if $val =~ /^\d+$/;
+                last;
+            }
+        }
+        last if defined $result->{fan_rpm};
+    }
+
+    # Clock rate: xe driver uses tile0/gt0/freq0/ (act_freq + max_freq)
+    # i915 uses device/tile*/gt_cur_freq_mhz
     if (defined $bdf) {
-        my $vram_mm_path = "/sys/kernel/debug/dri/$bdf/vram0_mm";
+        my $card_dev = sysfs_path("/sys/class/drm/$card/device");
+        # xe driver path
+        my $freq_base = "$card_dev/tile0/gt0/freq0";
+        if (-d $freq_base) {
+            my $act = do { open(my $f, '<', "$freq_base/act_freq") or undef; defined $f ? do { my $v = <$f>; close $f; chomp $v if defined $v; $v } : undef };
+            my $max = do { open(my $f, '<', "$freq_base/max_freq") or undef; defined $f ? do { my $v = <$f>; close $f; chomp $v if defined $v; $v } : undef };
+            $result->{clock_mhz} = int($act) if defined $act && $act =~ /^\d+$/;
+            $result->{clock_max_mhz} = int($max) if defined $max && $max =~ /^\d+$/;
+        } else {
+            # i915 fallback
+            my @freq_files = bsd_glob("$card_dev/tile*/gt_cur_freq_mhz");
+            for my $ff (@freq_files) {
+                open(my $fh, '<', $ff) or next;
+                my $val = <$fh>;
+                close($fh);
+                if (defined $val) {
+                    chomp $val;
+                    $result->{clock_mhz} = int($val) if $val =~ /^\d+$/;
+                    last;
+                }
+            }
+        }
+    }
+
+    # VRAM: from debugfs vram0_mm (size + usage in bytes)
+    if (defined $bdf) {
+        my $vram_mm_path = sysfs_path("/sys/kernel/debug/dri/$bdf/vram0_mm");
         if (open(my $fh, '<', $vram_mm_path)) {
             while (my $line = <$fh>) {
                 if ($line =~ /^\s*size:\s*(\d+)/) {
                     $result->{lmem_total_mb} = int($1 / (1024 * 1024));
-                    last;
+                }
+                if ($line =~ /^\s*usage:\s*(\d+)/) {
+                    $result->{lmem_used_mb} = int($1 / (1024 * 1024));
                 }
             }
             close($fh);
-        }
-    }
-
-    # VRAM allocated: sum of VF lmem quotas from debugfs lmem_provisioned
-    if (defined $bdf) {
-        my $prov_path = "/sys/kernel/debug/dri/$bdf/gt0/pf/lmem_provisioned";
-        if (open(my $fh, '<', $prov_path)) {
-            my $alloc_total = 0;
-            while (my $line = <$fh>) {
-                # Format: "VF1:\t8436842496\t(7.86 GiB)"
-                if ($line =~ /^VF\d+:\s+(\d+)/) {
-                    $alloc_total += $1;
-                }
-            }
-            close($fh);
-            $result->{lmem_alloc_mb} = int($alloc_total / (1024 * 1024)) if $alloc_total > 0;
         }
     }
 
@@ -239,6 +336,35 @@ sub read_telemetry {
         if (defined $lmem_val && $lmem_val =~ /^\d+$/) {
             $result->{lmem_total_mb} = int($lmem_val / (1024 * 1024));
         }
+    }
+
+    # Throttle detection
+    if (defined $bdf) {
+        my $card_dev = sysfs_path("/sys/class/drm/$card/device");
+        my $throttle_path = "$card_dev/tile0/gt0/freq0/throttle";
+        if (open(my $fh, '<', $throttle_path)) {
+            my $val = <$fh>;
+            close($fh);
+            if (defined $val) {
+                chomp $val;
+                $result->{throttled} = ($val ne '' && $val ne '0') ? \1 : \0;
+            }
+        }
+    }
+
+    # Derive health status from thresholds
+    my @issues;
+    if (defined $result->{temperature_c} && $result->{temperature_c} >= 95) {
+        push @issues, 'GPU temp critical';
+    }
+    if (defined $result->{mem_temperature_c} && $result->{mem_temperature_c} >= 85) {
+        push @issues, 'VRAM temp critical';
+    }
+    if ($result->{throttled} && ${$result->{throttled}}) {
+        push @issues, 'Throttled';
+    }
+    if (@issues) {
+        $result->{health} = join(', ', @issues);
     }
 
     return $result;
@@ -557,6 +683,15 @@ sub _collect_device {
         render_node      => $render_node // '',
         persisted        => $persisted,
     };
+
+    # Get VMs assigned to this GPU's VFs
+    if (int($sriov_numvfs) > 0 && defined $card) {
+        my $assigned = check_vf_vm_assignments($bdf, $card, int($sriov_numvfs));
+        my @vm_ids = map { $_->{vmid} } @$assigned;
+        $record->{assigned_vms} = \@vm_ids;
+    } else {
+        $record->{assigned_vms} = [];
+    }
 
     # Read GuC firmware version from debugfs
     if (defined $bdf) {
