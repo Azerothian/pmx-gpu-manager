@@ -318,15 +318,28 @@ sub read_telemetry {
     if (defined $bdf) {
         my $vram_mm_path = sysfs_path("/sys/kernel/debug/dri/$bdf/vram0_mm");
         if (open(my $fh, '<', $vram_mm_path)) {
+            my $total_bytes = 0;
             while (my $line = <$fh>) {
                 if ($line =~ /^\s*size:\s*(\d+)/) {
-                    $result->{lmem_total_mb} = int($1 / (1024 * 1024));
+                    $total_bytes = $1;
                 }
                 if ($line =~ /^\s*usage:\s*(\d+)/) {
                     $result->{lmem_used_mb} = int($1 / (1024 * 1024));
                 }
             }
             close($fh);
+
+            # Subtract PF lmem_spare (reserved for PF, not provisionable to VFs)
+            my $spare_path = sysfs_path("/sys/kernel/debug/dri/$bdf/gt0/pf/lmem_spare");
+            if (open(my $sfh, '<', $spare_path)) {
+                my $spare = <$sfh>;
+                close($sfh);
+                if (defined $spare) {
+                    chomp $spare;
+                    $total_bytes -= $spare if $spare =~ /^\d+$/;
+                }
+            }
+            $result->{lmem_total_mb} = int($total_bytes / (1024 * 1024)) if $total_bytes > 0;
         }
     }
 
