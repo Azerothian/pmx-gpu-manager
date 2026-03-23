@@ -1119,11 +1119,9 @@ __PACKAGE__->register_method({
         if ($num_vfs == 0) {
             eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
             die "Failed to remove VFs: $@\n" if $@;
-            if ($do_persist) {
-                my $config = parse_ini_config($XPU_SRIOV_CONF);
-                delete $config->{$bdf};
-                write_ini_config($XPU_SRIOV_CONF, $config);
-            }
+            my $config = parse_ini_config($XPU_SRIOV_CONF);
+            delete $config->{$bdf};
+            write_ini_config($XPU_SRIOV_CONF, $config);
             return { removed => 1 };
         }
 
