@@ -989,6 +989,12 @@ Ext.define('PVE.window.ModifyVfsDialog', {
                 value: lmemTotalGib > 0 ? lmemTotalGib.toFixed(2) + ' GiB' : gettext('Unknown')
             },
             {
+                xtype: 'displayfield',
+                fieldLabel: gettext('Max VFs'),
+                labelWidth: 160,
+                value: String(totalVfs)
+            },
+            {
                 xtype: 'numberfield',
                 itemId: 'numVfsField',
                 fieldLabel: gettext('Number of VFs'),
