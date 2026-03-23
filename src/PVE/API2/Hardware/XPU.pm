@@ -1418,6 +1418,190 @@ __PACKAGE__->register_method({
     },
 });
 
+# ---------------------------------------------------------------------------
+# VFIO persistence paths
+# ---------------------------------------------------------------------------
+my $VFIO_MODPROBE = '/etc/modprobe.d/pve-gpu-vfio.conf';
+my $VFIO_MODULES  = '/etc/modules-load.d/pve-gpu-vfio.conf';
+my $GRUB_DEFAULT  = '/etc/default/grub';
+
+sub _read_vfio_ids {
+    return [] unless -f $VFIO_MODPROBE;
+    open(my $fh, '<', $VFIO_MODPROBE) or return [];
+    my @ids;
+    while (my $line = <$fh>) {
+        chomp $line;
+        if ($line =~ /^options\s+vfio-pci\s+ids=(.+)$/) {
+            @ids = split(/,/, $1);
+        }
+    }
+    close($fh);
+    return \@ids;
+}
+
+sub _write_vfio_ids {
+    my ($ids) = @_;
+
+    if (@$ids) {
+        my $ids_str = join(',', @$ids);
+        file_set_contents($VFIO_MODPROBE, "options vfio-pci ids=$ids_str\n");
+        file_set_contents($VFIO_MODULES, "vfio\nvfio_iommu_type1\nvfio-pci\n");
+    } else {
+        unlink $VFIO_MODPROBE if -f $VFIO_MODPROBE;
+        unlink $VFIO_MODULES  if -f $VFIO_MODULES;
+    }
+
+    # Update GRUB
+    if (-f $GRUB_DEFAULT) {
+        my $content = file_get_contents($GRUB_DEFAULT);
+        my @lines = split(/\n/, $content, -1);
+        for my $line (@lines) {
+            if ($line =~ /^(GRUB_CMDLINE_LINUX_DEFAULT=)(["'])(.*)\2\s*$/) {
+                my ($key, $q, $val) = ($1, $2, $3);
+                # Remove existing vfio-pci.ids= param
+                $val =~ s/\s*vfio-pci\.ids=\S+//g;
+                $val =~ s/^\s+|\s+$//g;
+                if (@$ids) {
+                    my $ids_str = join(',', @$ids);
+                    # Ensure iommu params
+                    $val .= ' intel_iommu=on' unless $val =~ /intel_iommu=on/;
+                    $val .= ' iommu=pt'       unless $val =~ /iommu=pt/;
+                    $val .= " vfio-pci.ids=$ids_str";
+                    $val =~ s/^\s+//;
+                }
+                $line = "$key$q$val$q";
+                last;
+            }
+        }
+        my $new_content = join("\n", @lines);
+        # Atomic write via tmp file
+        my $tmp = "$GRUB_DEFAULT.tmp.$$";
+        file_set_contents($tmp, $new_content);
+        rename($tmp, $GRUB_DEFAULT) or die "Failed to update $GRUB_DEFAULT: $!\n";
+        eval { run_command(['update-grub'], errfunc => sub {}) };
+    }
+
+    eval { run_command(['update-initramfs', '-u'], errfunc => sub {}) };
+}
+
+__PACKAGE__->register_method({
+    name        => 'vfio_toggle',
+    path        => '{bdf}/vfio',
+    method      => 'POST',
+    description => 'Bind or unbind a GPU device to/from vfio-pci driver.',
+    permissions => {
+        check => ['perm', '/nodes/{node}', ['Sys.Modify']],
+    },
+    protected => 1,
+    proxyto   => 'node',
+    parameters => {
+        additionalProperties => 0,
+        properties => {
+            node => get_standard_option('pve-node'),
+            bdf  => {
+                type        => 'string',
+                description => 'PCI BDF address',
+                pattern     => $BDF_RE,
+            },
+            action => {
+                type        => 'string',
+                description => 'bind or unbind',
+                enum        => ['bind', 'unbind'],
+            },
+            persist => {
+                type        => 'boolean',
+                description => 'Persist across reboots (modprobe.d + GRUB)',
+                optional    => 1,
+                default     => 1,
+            },
+        },
+    },
+    returns => { type => 'object' },
+    code => sub {
+        my ($param) = @_;
+        my $bdf     = $param->{bdf};
+        my $action  = $param->{action};
+        my $persist = defined($param->{persist}) ? $param->{persist} : 1;
+
+        my $rec = _collect_device($bdf, 0);
+        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+
+        my $vendor_raw = read_sysfs("/sys/bus/pci/devices/$bdf/vendor") // '';
+        my $device_raw = read_sysfs("/sys/bus/pci/devices/$bdf/device") // '';
+        (my $vendor_id = lc($vendor_raw)) =~ s/^0x//;
+        (my $device_id = lc($device_raw)) =~ s/^0x//;
+        my $pci_id = "$vendor_id:$device_id";
+
+        my $current_driver = $rec->{driver} // '';
+
+        if ($action eq 'bind') {
+            my $numvfs = int($rec->{sriov_numvfs} // 0);
+            die "Cannot bind to vfio-pci while SR-IOV VFs are active ($numvfs VFs)\n" if $numvfs > 0;
+            die "Device '$bdf' is already bound to vfio-pci\n" if $current_driver eq 'vfio-pci';
+
+            run_command(['modprobe', 'vfio-pci'], errfunc => sub {});
+
+            eval {
+                open(my $fh, '>', sysfs_path("/sys/bus/pci/devices/$bdf/driver/unbind")) or die $!;
+                print $fh $bdf;
+                close($fh);
+            };
+
+            eval {
+                open(my $fh, '>', sysfs_path("/sys/bus/pci/devices/$bdf/driver_override")) or die $!;
+                print $fh "vfio-pci";
+                close($fh);
+            };
+            die "Failed to set driver_override: $@\n" if $@;
+
+            eval {
+                open(my $fh, '>', sysfs_path("/sys/bus/pci/drivers/vfio-pci/bind")) or die $!;
+                print $fh $bdf;
+                close($fh);
+            };
+            die "Failed to bind to vfio-pci: $@\n" if $@;
+
+            if ($persist) {
+                my $ids = _read_vfio_ids();
+                my %seen = map { $_ => 1 } @$ids;
+                push @$ids, $pci_id unless $seen{$pci_id};
+                _write_vfio_ids($ids);
+            }
+
+        } elsif ($action eq 'unbind') {
+            die "Device '$bdf' is not bound to vfio-pci (current driver: $current_driver)\n"
+                unless $current_driver eq 'vfio-pci';
+
+            eval {
+                open(my $fh, '>', sysfs_path("/sys/bus/pci/devices/$bdf/driver/unbind")) or die $!;
+                print $fh $bdf;
+                close($fh);
+            };
+            die "Failed to unbind from vfio-pci: $@\n" if $@;
+
+            eval {
+                open(my $fh, '>', sysfs_path("/sys/bus/pci/devices/$bdf/driver_override")) or die $!;
+                print $fh "";
+                close($fh);
+            };
+
+            eval {
+                open(my $fh, '>', sysfs_path("/sys/bus/pci/drivers_probe")) or die $!;
+                print $fh $bdf;
+                close($fh);
+            };
+
+            if ($persist) {
+                my $ids = _read_vfio_ids();
+                $ids = [ grep { $_ ne $pci_id } @$ids ];
+                _write_vfio_ids($ids);
+            }
+        }
+
+        return { success => 1, reboot_required => $persist ? \1 : \0 };
+    },
+});
+
 __PACKAGE__->register_method({
     name        => 'list_vfs',
     path        => '{bdf}/vf',
