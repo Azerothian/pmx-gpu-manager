@@ -1503,13 +1503,15 @@ Ext.define('PVE.panel.XpuSriovPanel', {
             success: function(response) {
                 var data = response.result && response.result.data;
                 var store = me.down('#vfGrid').getStore();
-                if (Ext.isArray(data)) {
+                store.removeAll();
+                if (Ext.isArray(data) && data.length > 0) {
                     store.loadData(data);
-                } else {
-                    store.removeAll();
                 }
             },
-            failure: Ext.emptyFn
+            failure: function() {
+                var store = me.down('#vfGrid').getStore();
+                store.removeAll();
+            }
         });
     },
 
