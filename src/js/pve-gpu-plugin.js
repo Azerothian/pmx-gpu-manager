@@ -2,7 +2,7 @@
  * GPU Manager for Proxmox VE
  * ExtJS 7 frontend for Intel discrete GPU SR-IOV management
  *
- * Registers a "XPU/GPU" tab in PVE.node.Config with:
+ * Registers a "GPU" tab in PVE.node.Config with:
  *   - Device grid (auto-refresh 30s)
  *   - Device detail panel (properties, telemetry, SR-IOV management)
  *   - VF lifecycle management (create, remove)
@@ -18,7 +18,7 @@
  * @param {number} bytes
  * @returns {string}
  */
-function xpuFormatBytes(bytes) {
+function gpuFormatBytes(bytes) {
     if (bytes === null || bytes === undefined || isNaN(bytes)) {
         return '-';
     }
@@ -37,7 +37,7 @@ function xpuFormatBytes(bytes) {
  * @param {number} temp  Temperature in °C
  * @returns {string}     CSS colour string
  */
-function xpuTempColour(temp) {
+function gpuTempColour(temp) {
     if (temp >= 86) {
         return '#e84040'; // red
     }
@@ -48,12 +48,12 @@ function xpuTempColour(temp) {
 }
 
 /* =========================================================================
- * XpuDeviceStore — backs the main device grid
+ * GpuDeviceStore — backs the main device grid
  * ========================================================================= */
 
-Ext.define('PVE.store.XpuDevices', {
+Ext.define('PVE.store.GpuDevices', {
     extend: 'Ext.data.Store',
-    alias: 'store.xpuDevices',
+    alias: 'store.gpuDevices',
 
     fields: [
         'bdf',
@@ -89,12 +89,12 @@ Ext.define('PVE.store.XpuDevices', {
 });
 
 /* =========================================================================
- * XpuDeviceGrid — main device list
+ * GpuDeviceGrid — main device list
  * ========================================================================= */
 
-Ext.define('PVE.grid.XpuDeviceGrid', {
+Ext.define('PVE.grid.GpuDeviceGrid', {
     extend: 'Ext.grid.Panel',
-    alias: 'widget.xpuDeviceGrid',
+    alias: 'widget.gpuDeviceGrid',
 
     title: gettext('GPU Devices'),
     collapsible: false,
@@ -105,7 +105,7 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
     },
 
     store: {
-        type: 'xpuDevices'
+        type: 'gpuDevices'
     },
 
     columns: [
@@ -133,7 +133,7 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
                     return '-';
                 }
                 var t = telemetry.temperature_c;
-                var colour = xpuTempColour(t);
+                var colour = gpuTempColour(t);
                 return '<span style="color:' + colour + ';font-weight:bold;">' + t + '\u00b0C</span>';
             }
         },
@@ -147,7 +147,7 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
                     return '-';
                 }
                 var t = telemetry.mem_temperature_c;
-                var colour = xpuTempColour(t);
+                var colour = gpuTempColour(t);
                 return '<span style="color:' + colour + ';font-weight:bold;">' + t + '\u00b0C</span>';
             }
         },
@@ -299,7 +299,7 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
             text: gettext('Refresh'),
             iconCls: 'fa fa-refresh',
             handler: function() {
-                this.up('xpuDeviceGrid').reload();
+                this.up('gpuDeviceGrid').reload();
             }
         },
         {
@@ -309,7 +309,7 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
             iconCls: 'fa fa-plug',
             disabled: true,
             handler: function() {
-                this.up('xpuDeviceGrid').toggleVfio();
+                this.up('gpuDeviceGrid').toggleVfio();
             }
         }
     ],
@@ -453,23 +453,23 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
 });
 
 /* =========================================================================
- * XpuPropertiesCard — key-value device properties
+ * GpuPropertiesCard — key-value device properties
  * ========================================================================= */
 
-Ext.define('PVE.panel.XpuPropertiesCard', {
+Ext.define('PVE.panel.GpuPropertiesCard', {
     extend: 'Ext.panel.Panel',
-    alias: 'widget.xpuPropertiesCard',
+    alias: 'widget.gpuPropertiesCard',
 
     title: gettext('Properties'),
     bodyPadding: 8,
     scrollable: 'y',
 
     tpl: [
-        '<table class="xpu-props-table">',
+        '<table class="gpu-props-table">',
         '<tpl for=".">',
         '<tr>',
-        '<td class="xpu-props-key">{label}</td>',
-        '<td class="xpu-props-val">{value}</td>',
+        '<td class="gpu-props-key">{label}</td>',
+        '<td class="gpu-props-val">{value}</td>',
         '</tr>',
         '</tpl>',
         '</table>'
@@ -514,12 +514,12 @@ Ext.define('PVE.panel.XpuPropertiesCard', {
 });
 
 /* =========================================================================
- * XpuTelemetryCard — live telemetry with auto-refresh
+ * GpuTelemetryCard — live telemetry with auto-refresh
  * ========================================================================= */
 
-Ext.define('PVE.panel.XpuTelemetryCard', {
+Ext.define('PVE.panel.GpuTelemetryCard', {
     extend: 'Ext.panel.Panel',
-    alias: 'widget.xpuTelemetryCard',
+    alias: 'widget.gpuTelemetryCard',
 
     title: gettext('Telemetry'),
     layout: { type: 'hbox', align: 'stretch', pack: 'start' },
@@ -736,7 +736,7 @@ Ext.define('PVE.panel.XpuTelemetryCard', {
         var tempBar = me.down('#tempBar');
         if (tempBar && tempC !== null && tempC !== undefined) {
             var tempPct = Math.min(tempC / 105, 1);
-            var colour = xpuTempColour(tempC);
+            var colour = gpuTempColour(tempC);
             tempBar.updateProgress(tempPct, tempC + ' \u00b0C');
             // Colour the bar according to temperature severity
             tempBar.getEl().down('.x-progress-bar').setStyle('background-color', colour);
@@ -810,12 +810,12 @@ Ext.define('PVE.panel.XpuTelemetryCard', {
 });
 
 /* =========================================================================
- * XpuPrecheckBar — SR-IOV prerequisite indicator strip
+ * GpuPrecheckBar — SR-IOV prerequisite indicator strip
  * ========================================================================= */
 
-Ext.define('PVE.panel.XpuPrecheckBar', {
+Ext.define('PVE.panel.GpuPrecheckBar', {
     extend: 'Ext.panel.Panel',
-    alias: 'widget.xpuPrecheckBar',
+    alias: 'widget.gpuPrecheckBar',
 
     title: gettext('SR-IOV Prerequisites'),
     layout: { type: 'hbox', align: 'middle', pack: 'start' },
@@ -916,12 +916,12 @@ Ext.define('PVE.panel.XpuPrecheckBar', {
 });
 
 /* =========================================================================
- * XpuDriftBanner — shown when persisted config != runtime state
+ * GpuDriftBanner — shown when persisted config != runtime state
  * ========================================================================= */
 
-Ext.define('PVE.panel.XpuDriftBanner', {
+Ext.define('PVE.panel.GpuDriftBanner', {
     extend: 'Ext.panel.Panel',
-    alias: 'widget.xpuDriftBanner',
+    alias: 'widget.gpuDriftBanner',
 
     hidden: true,
     bodyStyle: 'background:#fffbe6;border:1px solid #f0a020;padding:8px 12px;',
@@ -1017,12 +1017,12 @@ Ext.define('PVE.panel.XpuDriftBanner', {
 });
 
 /* =========================================================================
- * XpuVfStore — backs the VF grid
+ * GpuVfStore — backs the VF grid
  * ========================================================================= */
 
-Ext.define('PVE.store.XpuVfs', {
+Ext.define('PVE.store.GpuVfs', {
     extend: 'Ext.data.Store',
-    alias: 'store.xpuVfs',
+    alias: 'store.gpuVfs',
 
     fields: [
         { name: 'vf_index', type: 'auto' },
@@ -1440,12 +1440,12 @@ Ext.define('PVE.window.ModifyVfsDialog', {
 });
 
 /* =========================================================================
- * XpuSriovPanel — VF management section (precheck + VF grid)
+ * GpuSriovPanel — VF management section (precheck + VF grid)
  * ========================================================================= */
 
-Ext.define('PVE.panel.XpuSriovPanel', {
+Ext.define('PVE.panel.GpuSriovPanel', {
     extend: 'Ext.panel.Panel',
-    alias: 'widget.xpuSriovPanel',
+    alias: 'widget.gpuSriovPanel',
 
     title: gettext('SR-IOV Virtual Functions'),
     layout: { type: 'vbox', align: 'stretch' },
@@ -1461,7 +1461,7 @@ Ext.define('PVE.panel.XpuSriovPanel', {
         me.items = [
             // Drift banner
             {
-                xtype: 'xpuDriftBanner',
+                xtype: 'gpuDriftBanner',
                 itemId: 'driftBanner',
                 pveSelNode: me.pveSelNode
             },
@@ -1470,7 +1470,7 @@ Ext.define('PVE.panel.XpuSriovPanel', {
                 xtype: 'gridpanel',
                 itemId: 'vfGrid',
                 flex: 1,
-                store: { type: 'xpuVfs' },
+                store: { type: 'gpuVfs' },
                 columns: [
                     { header: gettext('VF #'), dataIndex: 'vf_index', width: 60, align: 'center' },
                     {
@@ -1483,14 +1483,14 @@ Ext.define('PVE.panel.XpuSriovPanel', {
                         header: gettext('LMEM'), dataIndex: 'lmem_quota', width: 120,
                         renderer: function(val) {
                             var n = Number(val);
-                            return (n > 0) ? xpuFormatBytes(n) : '-';
+                            return (n > 0) ? gpuFormatBytes(n) : '-';
                         }
                     },
                     {
                         header: gettext('Page Size'), dataIndex: 'ggtt_quota', width: 120,
                         renderer: function(val) {
                             var n = Number(val);
-                            return (n > 0) ? xpuFormatBytes(n) : '-';
+                            return (n > 0) ? gpuFormatBytes(n) : '-';
                         }
                     },
                     {
@@ -1648,12 +1648,12 @@ Ext.define('PVE.panel.XpuSriovPanel', {
 });
 
 /* =========================================================================
- * XpuDeviceDetail — right/bottom panel shown on row selection
+ * GpuDeviceDetail — right/bottom panel shown on row selection
  * ========================================================================= */
 
-Ext.define('PVE.panel.XpuDeviceDetail', {
+Ext.define('PVE.panel.GpuDeviceDetail', {
     extend: 'Ext.panel.Panel',
-    alias: 'widget.xpuDeviceDetail',
+    alias: 'widget.gpuDeviceDetail',
 
     title: gettext('Device Detail'),
     layout: { type: 'vbox', align: 'stretch' },
@@ -1675,14 +1675,14 @@ Ext.define('PVE.panel.XpuDeviceDetail', {
                 height: 230,
                 items: [
                     {
-                        xtype: 'xpuPropertiesCard',
+                        xtype: 'gpuPropertiesCard',
                         itemId: 'propsCard',
                         flex: 1,
                         margin: '0 4 4 0',
                         border: true
                     },
                     {
-                        xtype: 'xpuTelemetryCard',
+                        xtype: 'gpuTelemetryCard',
                         itemId: 'telemetryCard',
                         flex: 2,
                         margin: '0 0 4 4',
@@ -1693,7 +1693,7 @@ Ext.define('PVE.panel.XpuDeviceDetail', {
             },
             // SR-IOV panel
             {
-                xtype: 'xpuSriovPanel',
+                xtype: 'gpuSriovPanel',
                 itemId: 'sriovPanel',
                 flex: 1,
                 minHeight: 280,
@@ -1729,12 +1729,12 @@ Ext.define('PVE.panel.XpuDeviceDetail', {
 });
 
 /* =========================================================================
- * XpuManager — the main node tab panel
+ * GpuManager — the main node tab panel
  * ========================================================================= */
 
-Ext.define('PVE.node.XpuManager', {
+Ext.define('PVE.node.GpuManager', {
     extend: 'Ext.panel.Panel',
-    alias: 'widget.pveXpuManager',
+    alias: 'widget.pveGpuManager',
 
     layout: { type: 'border' },
 
@@ -1748,7 +1748,7 @@ Ext.define('PVE.node.XpuManager', {
         me.items = [
             // Device grid — north region
             {
-                xtype: 'xpuDeviceGrid',
+                xtype: 'gpuDeviceGrid',
                 itemId: 'deviceGrid',
                 region: 'north',
                 height: 240,
@@ -1762,7 +1762,7 @@ Ext.define('PVE.node.XpuManager', {
             },
             // Device detail — center region
             {
-                xtype: 'xpuDeviceDetail',
+                xtype: 'gpuDeviceDetail',
                 itemId: 'deviceDetail',
                 region: 'center',
                 pveSelNode: me.pveSelNode,
@@ -1780,18 +1780,18 @@ Ext.define('PVE.node.XpuManager', {
 });
 
 /* =========================================================================
- * Tab registration — inject XPU/GPU tab into PVE.node.Config
+ * Tab registration — inject GPU tab into PVE.node.Config
  *
  * PVE.node.Config uses an items array; we override initComponent on the
  * existing class to push our tab in. This follows the same pattern used by
  * other PVE UI plugins (e.g. PVE-mods).
  * ========================================================================= */
 
-// Override PVE.node.Config to inject our XPU/GPU tab.
+// Override PVE.node.Config to inject our GPU tab.
 // PVE.panel.Config.initComponent processes me.items via insertNodes(),
 // which adds them to both savedItems and the tree store for navigation.
 // After callParent(), insertNodes() is still available to add more items.
-Ext.define('PVE.node.XpuManagerOverride', {
+Ext.define('PVE.node.GpuManagerOverride', {
     override: 'PVE.node.Config',
 
     initComponent: function() {
@@ -1803,10 +1803,10 @@ Ext.define('PVE.node.XpuManagerOverride', {
         // Use PVE.panel.Config's insertNodes to properly register our tab
         // in both the tree navigation and the card layout
         me.insertNodes([{
-            xtype: 'pveXpuManager',
+            xtype: 'pveGpuManager',
             title: gettext('GPU'),
             iconCls: 'fa fa-microchip',
-            itemId: 'xpugpu',
+            itemId: 'gpugpu',
             pveSelNode: me.pveSelNode,
             nodename: me.pveSelNode.data.node
         }]);
@@ -1818,7 +1818,7 @@ Ext.define('PVE.node.XpuManagerOverride', {
  * ========================================================================= */
 
 (function() {
-    var styleId = 'pve-xpu-plugin-styles';
+    var styleId = 'pve-gpu-plugin-styles';
     if (document.getElementById(styleId)) { return; }
 
     var style = document.createElement('style');
@@ -1835,15 +1835,15 @@ Ext.define('PVE.node.XpuManagerOverride', {
         '.x-monospace { font-family: monospace; }',
 
         // Light mode (default)
-        '.xpu-props-table {',
+        '.gpu-props-table {',
         '  width: 100%;',
         '  border-collapse: collapse;',
         '  border: 1px solid #e0e0e0;',
         '}',
-        '.xpu-props-table tr:nth-child(even) { background: #f0f0f0; }',
-        '.xpu-props-table tr:nth-child(odd) { background: #fafafa; }',
-        '.xpu-props-table tr:hover { background: #e0ecf5; }',
-        '.xpu-props-key {',
+        '.gpu-props-table tr:nth-child(even) { background: #f0f0f0; }',
+        '.gpu-props-table tr:nth-child(odd) { background: #fafafa; }',
+        '.gpu-props-table tr:hover { background: #e0ecf5; }',
+        '.gpu-props-key {',
         '  padding: 5px 10px;',
         '  font-weight: 600;',
         '  color: #444;',
@@ -1852,7 +1852,7 @@ Ext.define('PVE.node.XpuManagerOverride', {
         '  border-right: 1px solid #e0e0e0;',
         '  opacity: 0.8;',
         '}',
-        '.xpu-props-val {',
+        '.gpu-props-val {',
         '  padding: 5px 10px;',
         '  font-family: monospace;',
         '  color: #222;',
@@ -1862,14 +1862,14 @@ Ext.define('PVE.node.XpuManagerOverride', {
     // Dark mode: dynamically update styles when dark theme is detected.
     // PVE dark theme loads a CSS file that sets --pwt-panel-background on :root.
     // We detect this and inject dark overrides with !important to ensure they win.
-    var darkStyleId = 'pve-xpu-plugin-dark';
+    var darkStyleId = 'pve-gpu-plugin-dark';
     var darkCSS = [
-        '.xpu-props-table { border-color: #404040 !important; }',
-        '.xpu-props-table tr:nth-child(even) { background: #1a1a1a !important; }',
-        '.xpu-props-table tr:nth-child(odd) { background: #262626 !important; }',
-        '.xpu-props-table tr:hover { background: #595959 !important; }',
-        '.xpu-props-key { color: #b0b0b0 !important; border-right-color: #404040 !important; }',
-        '.xpu-props-val { color: #f2f2f2 !important; }'
+        '.gpu-props-table { border-color: #404040 !important; }',
+        '.gpu-props-table tr:nth-child(even) { background: #1a1a1a !important; }',
+        '.gpu-props-table tr:nth-child(odd) { background: #262626 !important; }',
+        '.gpu-props-table tr:hover { background: #595959 !important; }',
+        '.gpu-props-key { color: #b0b0b0 !important; border-right-color: #404040 !important; }',
+        '.gpu-props-val { color: #f2f2f2 !important; }'
     ].join('\n');
 
     var applyTheme = function() {

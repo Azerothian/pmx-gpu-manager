@@ -50,20 +50,20 @@ my $DEVICE_NAMES = {
 my $BDF_RE = '[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]';
 
 # Config paths
-my $XPU_SRIOV_CONF      = '/etc/pve/local/xpu-sriov.conf';
-my $XPU_VF_TEMPLATES    = '/etc/pve/local/xpu-vf-templates.conf';
+my $XPU_SRIOV_CONF      = '/etc/pve/local/gpu-sriov.conf';
+my $XPU_VF_TEMPLATES    = '/etc/pve/local/gpu-vf-templates.conf';
 
 # ---------------------------------------------------------------------------
 # Fake sysfs helper
 # ---------------------------------------------------------------------------
 my $_sysfs_root_cache;
-my $_sysfs_root_conf = '/etc/pve-xpu-sysfs-root';
+my $_sysfs_root_conf = '/etc/pve-gpu-sysfs-root';
 
 sub _get_sysfs_root {
     return $_sysfs_root_cache if defined $_sysfs_root_cache;
 
     # Check env var first (works for CLI tools, tests)
-    if (my $root = $ENV{PVE_XPU_SYSFS_ROOT}) {
+    if (my $root = $ENV{PVE_GPU_SYSFS_ROOT}) {
         $root =~ s{/$}{};
         $_sysfs_root_cache = $root;
         return $root;
@@ -746,7 +746,7 @@ sub _has_sriov_cap {
 
 # ---------------------------------------------------------------------------
 # Internal: collect full device record from sysfs for a given BDF
-# Returns undef if device is not found or not an Intel XPU
+# Returns undef if device is not found or not an Intel GPU
 # ---------------------------------------------------------------------------
 sub _collect_device {
     my ($bdf, $with_telemetry) = @_;
@@ -867,7 +867,7 @@ sub _collect_device {
 }
 
 # ---------------------------------------------------------------------------
-# Internal: enumerate all Intel XPU devices on the system
+# Internal: enumerate all Intel GPU devices on the system
 # ---------------------------------------------------------------------------
 sub _enumerate_devices {
     my @devices;
@@ -903,7 +903,7 @@ __PACKAGE__->register_method({
     name        => 'list_devices',
     path        => '',
     method      => 'GET',
-    description => 'List Intel discrete GPU/XPU devices on this node.',
+    description => 'List Intel discrete GPU devices on this node.',
     permissions => {
         check => ['perm', '/nodes/{node}', ['Sys.Audit']],
     },
@@ -931,7 +931,7 @@ __PACKAGE__->register_method({
     name        => 'device_detail',
     path        => '{bdf}',
     method      => 'GET',
-    description => 'Get detailed information for a specific XPU device, including telemetry.',
+    description => 'Get detailed information for a specific GPU device, including telemetry.',
     permissions => {
         check => ['perm', '/nodes/{node}', ['Sys.Audit']],
     },
@@ -953,7 +953,7 @@ __PACKAGE__->register_method({
         my ($param) = @_;
         my $bdf = $param->{bdf};
         my $rec = _collect_device($bdf, 1);
-        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
         return $rec;
     },
 });
@@ -985,7 +985,7 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
 
         my $card        = $rec->{drm_card};
         my $prechecks   = run_prechecks($bdf, $card);
@@ -1028,7 +1028,7 @@ __PACKAGE__->register_method({
     name        => 'create_vfs',
     path        => '{bdf}/sriov',
     method      => 'POST',
-    description => 'Create SR-IOV Virtual Functions for an XPU device.',
+    description => 'Create SR-IOV Virtual Functions for an GPU device.',
     permissions => {
         check => ['perm', '/nodes/{node}', ['Sys.Modify']],
     },
@@ -1108,7 +1108,7 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
 
         my $family    = $rec->{family};
         my $card      = $rec->{drm_card};
@@ -1362,7 +1362,7 @@ __PACKAGE__->register_method({
     name        => 'remove_vfs',
     path        => '{bdf}/sriov',
     method      => 'DELETE',
-    description => 'Remove all SR-IOV Virtual Functions from an XPU device.',
+    description => 'Remove all SR-IOV Virtual Functions from an GPU device.',
     permissions => {
         check => ['perm', '/nodes/{node}', ['Sys.Modify']],
     },
@@ -1391,7 +1391,7 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
 
         my $current_numvfs = int($rec->{sriov_numvfs});
 
@@ -1425,7 +1425,7 @@ __PACKAGE__->register_method({
 # ---------------------------------------------------------------------------
 # VFIO persistence paths
 # ---------------------------------------------------------------------------
-my $VFIO_CONF     = '/etc/pve-xpu-vfio.conf';
+my $VFIO_CONF     = '/etc/pve-gpu-vfio.conf';
 my $VFIO_MODPROBE = '/etc/modprobe.d/pve-gpu-vfio.conf';
 my $VFIO_MODULES  = '/etc/modules-load.d/pve-gpu-vfio.conf';
 
@@ -1509,7 +1509,7 @@ __PACKAGE__->register_method({
         my $persist = defined($param->{persist}) ? $param->{persist} : 1;
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
 
         my $current_driver = $rec->{driver} // '';
 
@@ -1587,7 +1587,7 @@ __PACKAGE__->register_method({
     name        => 'list_vfs',
     path        => '{bdf}/vf',
     method      => 'GET',
-    description => 'List all active VFs for an XPU device.',
+    description => 'List all active VFs for an GPU device.',
     permissions => {
         check => ['perm', '/nodes/{node}', ['Sys.Audit']],
     },
@@ -1614,7 +1614,7 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
 
         my $num_vfs = int($rec->{sriov_numvfs});
         return [] if $num_vfs == 0;
@@ -1692,7 +1692,7 @@ __PACKAGE__->register_method({
         my $vf_index = int($param->{vfIndex});
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel XPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
 
         my $num_vfs = int($rec->{sriov_numvfs});
         die "No VFs are currently active on device '$bdf'\n" if $num_vfs == 0;

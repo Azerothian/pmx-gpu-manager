@@ -1,17 +1,17 @@
 import { test, expect } from '@playwright/test';
-import { navigateToNode, openXpuTab } from './helpers';
+import { navigateToNode, openGpuTab } from './helpers';
 
-test.describe('XPU/GPU Tab', () => {
+test.describe('GPU Tab', () => {
 
-    test('XPU/GPU panel visible in node view', async ({ page }) => {
-        await openXpuTab(page);
+    test('GPU panel visible in node view', async ({ page }) => {
+        await openGpuTab(page);
 
-        // Verify the XPU/GPU panel content is visible
-        await expect(page.locator('text=XPU/GPU').first()).toBeVisible({ timeout: 10000 });
+        // Verify the GPU panel content is visible
+        await expect(page.locator('text=GPU').first()).toBeVisible({ timeout: 10000 });
     });
 
     test('device grid loads with Flex 170', async ({ page }) => {
-        await openXpuTab(page);
+        await openGpuTab(page);
 
         // Verify the fake Flex 170 device appears
         await expect(page.locator('text=0000:03:00.0').first()).toBeVisible({ timeout: 10000 });
@@ -19,7 +19,7 @@ test.describe('XPU/GPU Tab', () => {
     });
 
     test('device detail shows properties', async ({ page }) => {
-        await openXpuTab(page);
+        await openGpuTab(page);
 
         // Click on the Flex 170 device
         await page.locator('text=0000:03:00.0').first().click();
@@ -31,7 +31,7 @@ test.describe('XPU/GPU Tab', () => {
     });
 
     test('telemetry displays temperature', async ({ page }) => {
-        await openXpuTab(page);
+        await openGpuTab(page);
 
         // Click device
         await page.locator('text=0000:03:00.0').first().click();
@@ -42,7 +42,7 @@ test.describe('XPU/GPU Tab', () => {
     });
 
     test('SR-IOV prechecks section visible', async ({ page }) => {
-        await openXpuTab(page);
+        await openGpuTab(page);
 
         // Click device
         await page.locator('text=0000:03:00.0').first().click();
@@ -53,14 +53,14 @@ test.describe('XPU/GPU Tab', () => {
     });
 
     test('BMG device listed', async ({ page }) => {
-        await openXpuTab(page);
+        await openGpuTab(page);
 
         // Verify the BMG device also appears
         await expect(page.locator('text=0000:04:00.0').first()).toBeVisible({ timeout: 10000 });
     });
 
     test('SR-IOV VF section visible', async ({ page }) => {
-        await openXpuTab(page);
+        await openGpuTab(page);
 
         // Click device
         await page.locator('text=0000:03:00.0').first().click();

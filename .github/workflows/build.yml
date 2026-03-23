@@ -31,6 +31,6 @@ jobs:
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pve-xpu-manager-deb
+          name: pve-gpu-manager-deb
           path: ../*.deb
           retention-days: 30

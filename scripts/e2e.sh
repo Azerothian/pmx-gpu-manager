@@ -1,5 +1,5 @@
 #!/bin/bash
-# e2e.sh — End-to-end test runner for PVE XPU Manager Plugin
+# e2e.sh — End-to-end test runner for PVE GPU Manager Plugin
 #
 # Automates: ISO prep → QEMU VM install → plugin deploy → smoke tests → cleanup
 #
@@ -34,7 +34,7 @@ ISO_AUTO="$QEMU_DIR/proxmox-ve_9.1-1-auto.iso"
 ANSWER_TOML="$QEMU_DIR/answer.toml"
 SERIAL_SOCK="$QEMU_DIR/pve-serial.sock"
 MONITOR_SOCK="$QEMU_DIR/pve-monitor.sock"
-SYSFS_ROOT_CONF="/etc/pve-xpu-sysfs-root"
+SYSFS_ROOT_CONF="/etc/pve-gpu-sysfs-root"
 
 PVE_ISO_URL="${PVE_ISO_URL:-https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso}"
 PVE_PASSWORD="${PVE_PASSWORD:-testpassword}"
@@ -341,7 +341,7 @@ info "Plugin installed"
 log "Setting up fake sysfs"
 scp_cmd "$FAKE_SYSFS_SCRIPT" root@localhost:/tmp/
 ssh_cmd "bash /tmp/setup-fake-sysfs.sh" 2>/dev/null
-ssh_cmd "echo '/tmp/fake-xpu' > $SYSFS_ROOT_CONF"
+ssh_cmd "echo '/tmp/fake-gpu' > $SYSFS_ROOT_CONF"
 ssh_cmd "systemctl restart pvedaemon pveproxy"
 sleep 5
 info "Fake sysfs deployed, daemons restarted"
@@ -355,11 +355,11 @@ echo ""
 
 echo "--- Installation ---"
 run_test "Perl module exists" "test -f /usr/share/perl5/PVE/API2/Hardware/XPU.pm"
-run_test "JS plugin exists" "test -f /usr/share/pve-manager/js/pve-xpu-plugin.js"
-run_test "Apply script exists" "test -x /usr/lib/pve-xpu/apply-sriov-config.sh"
-run_test "JS patch applied" "grep -q pve-xpu-plugin /usr/share/pve-manager/index.html.tpl"
+run_test "JS plugin exists" "test -f /usr/share/pve-manager/js/pve-gpu-plugin.js"
+run_test "Apply script exists" "test -x /usr/lib/pve-gpu/apply-sriov-config.sh"
+run_test "JS patch applied" "grep -q pve-gpu-plugin /usr/share/pve-manager/index.html.tpl"
 run_test "Hardware.pm patched" "grep -q 'PVE::API2::Hardware::XPU' /usr/share/perl5/PVE/API2/Hardware.pm"
-run_test "Service enabled" "systemctl is-enabled pve-xpu-sriov.service"
+run_test "Service enabled" "systemctl is-enabled pve-gpu-sriov.service"
 run_test "Perl module loads" "perl -MPVE::API2::Hardware::XPU -e 1"
 
 echo ""
@@ -397,7 +397,7 @@ run_test_output "VF 2 exists" "vf_index" \
 
 # Verify sriov_numvfs was written to fake sysfs
 run_test_output "sysfs numvfs=2" "2" \
-    "cat /tmp/fake-xpu/sys/bus/pci/devices/0000:03:00.0/sriov_numvfs"
+    "cat /tmp/fake-gpu/sys/bus/pci/devices/0000:03:00.0/sriov_numvfs"
 
 # Remove VFs
 run_test "Remove VFs" \
@@ -405,7 +405,7 @@ run_test "Remove VFs" \
 
 # Verify VFs are actually gone
 run_test_output "sysfs numvfs=0 after remove" "0" \
-    "cat /tmp/fake-xpu/sys/bus/pci/devices/0000:03:00.0/sriov_numvfs"
+    "cat /tmp/fake-gpu/sys/bus/pci/devices/0000:03:00.0/sriov_numvfs"
 run_test_output "VF list empty after remove" "\\[\\]" \
     "pvesh get /nodes/$HOSTNAME/hardware/xpu/0000:03:00.0/vf --output-format json"
 run_test_output "Device shows 0 VFs" "0" \
@@ -416,14 +416,14 @@ echo "--- Persistence ---"
 # Create VFs with persist to generate config
 run_test "Create VFs for persist test" \
     "pvesh create /nodes/$HOSTNAME/hardware/xpu/0000:03:00.0/sriov --num_vfs 2 --persist 1"
-run_test "Config file written" "test -f /etc/pve/local/xpu-sriov.conf"
-run_test_output "Config has BDF" "0000:03:00.0" "cat /etc/pve/local/xpu-sriov.conf"
-run_test_output "Config has num_vfs" "num_vfs" "cat /etc/pve/local/xpu-sriov.conf"
+run_test "Config file written" "test -f /etc/pve/local/gpu-sriov.conf"
+run_test_output "Config has BDF" "0000:03:00.0" "cat /etc/pve/local/gpu-sriov.conf"
+run_test_output "Config has num_vfs" "num_vfs" "cat /etc/pve/local/gpu-sriov.conf"
 
 # Remove VFs but keep persistent config
 run_test "Remove VFs (keep persist)" \
     "pvesh delete /nodes/$HOSTNAME/hardware/xpu/0000:03:00.0/sriov"
-run_test "Config still exists after remove" "test -f /etc/pve/local/xpu-sriov.conf"
+run_test "Config still exists after remove" "test -f /etc/pve/local/gpu-sriov.conf"
 
 # Re-create and remove with --remove_persist
 run_test "Create VFs again" \
@@ -431,13 +431,13 @@ run_test "Create VFs again" \
 run_test "Remove VFs + persist" \
     "pvesh delete /nodes/$HOSTNAME/hardware/xpu/0000:03:00.0/sriov --remove_persist 1"
 run_test "Config removed with --remove_persist" \
-    "test ! -f /etc/pve/local/xpu-sriov.conf || ! grep -q '0000:03:00.0' /etc/pve/local/xpu-sriov.conf"
+    "test ! -f /etc/pve/local/gpu-sriov.conf || ! grep -q '0000:03:00.0' /etc/pve/local/gpu-sriov.conf"
 
 echo ""
 echo "--- Fake sysfs integrity ---"
-run_test_output "Fake vendor" "0x8086" "cat /tmp/fake-xpu/sys/bus/pci/devices/0000:03:00.0/vendor"
-run_test_output "Fake device" "0x56c0" "cat /tmp/fake-xpu/sys/bus/pci/devices/0000:03:00.0/device"
-run_test_output "Fake temp" "42000" "cat /tmp/fake-xpu/sys/class/drm/card0/device/hwmon/hwmon0/temp1_input"
+run_test_output "Fake vendor" "0x8086" "cat /tmp/fake-gpu/sys/bus/pci/devices/0000:03:00.0/vendor"
+run_test_output "Fake device" "0x56c0" "cat /tmp/fake-gpu/sys/bus/pci/devices/0000:03:00.0/device"
+run_test_output "Fake temp" "42000" "cat /tmp/fake-gpu/sys/class/drm/card0/device/hwmon/hwmon0/temp1_input"
 
 echo ""
 echo "--- Playwright UI tests ---"
@@ -475,7 +475,7 @@ echo ""
 echo "--- Uninstall ---"
 run_test "Uninstall plugin" "dpkg -r pve-gpu-manager"
 run_test "Module removed" "test ! -f /usr/share/perl5/PVE/API2/Hardware/XPU.pm"
-run_test "JS patch reverted" "! grep -q pve-xpu-plugin /usr/share/pve-manager/index.html.tpl"
+run_test "JS patch reverted" "! grep -q pve-gpu-plugin /usr/share/pve-manager/index.html.tpl"
 run_test "Hardware.pm reverted" "! grep -q 'PVE::API2::Hardware::XPU' /usr/share/perl5/PVE/API2/Hardware.pm"
 
 echo ""
@@ -506,16 +506,16 @@ run_test_output "Node status API" "pve-test" \
 run_test "Hardware PCI endpoint" \
     "pvesh get /nodes/$HOSTNAME/hardware/pci --output-format json"
 
-# Hardware index lists pci and usb but NOT xpu
+# Hardware index lists pci and usb but NOT xpu (api route stays)
 run_test "Hardware index has pci" \
     "pvesh ls /nodes/$HOSTNAME/hardware 2>&1 | grep -q pci"
 run_test "Hardware index has usb" \
     "pvesh ls /nodes/$HOSTNAME/hardware 2>&1 | grep -q usb"
-run_test "Hardware index no xpu" \
+run_test "Hardware index no xpu route" \
     "! pvesh ls /nodes/$HOSTNAME/hardware 2>&1 | grep -q xpu"
 
-# XPU endpoint returns proper error (not a crash)
-run_test_output "XPU endpoint gone (404/501)" "not implemented\|No 'get' handler\|not found" \
+# GPU endpoint returns proper error (not a crash)
+run_test_output "GPU endpoint gone (404/501)" "not implemented\|No 'get' handler\|not found" \
     "pvesh get /nodes/$HOSTNAME/hardware/xpu --output-format json 2>&1 || true"
 
 # pveproxy is running and healthy

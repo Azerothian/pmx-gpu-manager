@@ -1,12 +1,12 @@
 #!/bin/bash
 # Bind configured GPUs to vfio-pci, then load native driver for remaining GPUs
-# Called by pve-xpu-vfio.service
+# Called by pve-gpu-vfio.service
 
 set -o pipefail
 
-VFIO_CONF="/etc/pve-xpu-vfio.conf"
+VFIO_CONF="/etc/pve-gpu-vfio.conf"
 
-log() { logger -t pve-xpu-vfio "$@"; echo "$@"; }
+log() { logger -t pve-gpu-vfio "$@"; echo "$@"; }
 
 main() {
     if [ ! -f "$VFIO_CONF" ]; then

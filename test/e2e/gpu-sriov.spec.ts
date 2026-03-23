@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openXpuTab, openCreateVfsDialog } from './helpers';
+import { openGpuTab, openCreateVfsDialog } from './helpers';
 
 test.describe('SR-IOV Management', () => {
 
@@ -40,7 +40,7 @@ test.describe('SR-IOV Management', () => {
     });
 
     test('remove button state reflects VF presence', async ({ page }) => {
-        await openXpuTab(page);
+        await openGpuTab(page);
 
         // Click device
         await page.locator('text=0000:03:00.0').first().click();

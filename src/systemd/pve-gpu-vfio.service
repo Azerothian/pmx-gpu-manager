@@ -5,7 +5,7 @@ Before=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/lib/pve-xpu/apply-vfio-config.sh
+ExecStart=/usr/lib/pve-gpu/apply-vfio-config.sh
 
 [Install]
 WantedBy=multi-user.target

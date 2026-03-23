@@ -11,22 +11,22 @@ install:
 	install -D -m 0644 src/PVE/API2/Hardware/XPU.pm \
 		$(DESTDIR)/usr/share/perl5/PVE/API2/Hardware/XPU.pm
 	# JavaScript plugin
-	install -D -m 0644 src/js/pve-xpu-plugin.js \
-		$(DESTDIR)/usr/share/pve-manager/js/pve-xpu-plugin.js
+	install -D -m 0644 src/js/pve-gpu-plugin.js \
+		$(DESTDIR)/usr/share/pve-manager/js/pve-gpu-plugin.js
 	# Scripts
 	install -D -m 0755 src/scripts/apply-sriov-config.sh \
-		$(DESTDIR)/usr/lib/pve-xpu/apply-sriov-config.sh
+		$(DESTDIR)/usr/lib/pve-gpu/apply-sriov-config.sh
 	install -D -m 0755 src/scripts/reapply-patches.sh \
-		$(DESTDIR)/usr/lib/pve-xpu/reapply-patches.sh
+		$(DESTDIR)/usr/lib/pve-gpu/reapply-patches.sh
 	# Systemd service
-	install -D -m 0644 src/systemd/pve-xpu-sriov.service \
-		$(DESTDIR)/lib/systemd/system/pve-xpu-sriov.service
+	install -D -m 0644 src/systemd/pve-gpu-sriov.service \
+		$(DESTDIR)/lib/systemd/system/pve-gpu-sriov.service
 	# Default templates (staged; postinst copies to /etc/pve/local/)
-	install -D -m 0644 config/xpu-vf-templates.conf \
-		$(DESTDIR)/usr/share/pve-xpu/xpu-vf-templates.conf
+	install -D -m 0644 config/gpu-vf-templates.conf \
+		$(DESTDIR)/usr/share/pve-gpu/gpu-vf-templates.conf
 	# APT hook
-	install -D -m 0644 config/99-pve-xpu-reapply \
-		$(DESTDIR)/etc/apt/apt.conf.d/99-pve-xpu-reapply
+	install -D -m 0644 config/99-pve-gpu-reapply \
+		$(DESTDIR)/etc/apt/apt.conf.d/99-pve-gpu-reapply
 
 deb:
 	dpkg-buildpackage -us -uc -b
@@ -38,7 +38,7 @@ e2e-test:
 	cd test/e2e && npx playwright test
 
 clean:
-	rm -rf debian/pve-xpu-manager
+	rm -rf debian/pve-gpu-manager
 	rm -rf debian/.debhelper
 	rm -f debian/debhelper-build-stamp
 	rm -f debian/files

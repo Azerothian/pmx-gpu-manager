@@ -1,14 +1,14 @@
 #!/bin/bash
 # Apply Intel GPU SR-IOV Configuration at boot
-# Called by pve-xpu-sriov.service
+# Called by pve-gpu-sriov.service
 
 set -o pipefail
 
-SRIOV_CONF="/etc/pve/local/xpu-sriov.conf"
-TEMPLATE_CONF="/etc/pve/local/xpu-vf-templates.conf"
+SRIOV_CONF="/etc/pve/local/gpu-sriov.conf"
+TEMPLATE_CONF="/etc/pve/local/gpu-vf-templates.conf"
 DRM_TIMEOUT=60
 
-log() { logger -t pve-xpu-sriov "$@"; echo "$@"; }
+log() { logger -t pve-gpu-sriov "$@"; echo "$@"; }
 
 # Wait for DRM devices
 wait_for_drm() {

@@ -98,7 +98,7 @@ This cleanly removes the plugin, restores patched PVE files, and disables the sy
 ```
 src/
   PVE/API2/Hardware/XPU.pm    # Perl backend (API endpoints)
-  js/pve-xpu-plugin.js        # ExtJS frontend (UI plugin)
+  js/pve-gpu-plugin.js        # ExtJS frontend (UI plugin)
   scripts/                     # Boot persistence and patch scripts
   systemd/                     # Systemd service
 config/                        # Default VF templates, APT hook

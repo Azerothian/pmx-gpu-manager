@@ -1,22 +1,22 @@
 #!/bin/sh
-# postinst: apply PVE XPU Manager patches and enable systemd service
+# postinst: apply PVE GPU Manager patches and enable systemd service
 set -e
 
 INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
 HARDWARE_PM="/usr/share/perl5/PVE/API2/Hardware.pm"
-SCRIPT_TAG='<script src="/pve2/js/pve-xpu-plugin.js"></script>'
+SCRIPT_TAG='<script src="/pve2/js/pve-gpu-plugin.js"></script>'
 USE_STMT='use PVE::API2::Hardware::XPU;'
 
 APPLIED=0
 
 log() {
-    logger -t pve-xpu-postinst "$@" || true
-    echo "pve-xpu-postinst: $*"
+    logger -t pve-gpu-postinst "$@" || true
+    echo "pve-gpu-postinst: $*"
 }
 
 backup_if_needed() {
     local file="$1"
-    local backup="${file}.pre-xpu"
+    local backup="${file}.pre-gpu"
     if [ ! -f "$backup" ] && [ -f "$file" ]; then
         cp "$file" "$backup"
         log "Backed up $file -> $backup"
@@ -104,18 +104,18 @@ patch_hardware_pm() {
     mv "$tmp2" "$HARDWARE_PM"
     chmod 644 "$HARDWARE_PM"
     rm -f "$tmp"
-    log "Patched $HARDWARE_PM: added XPU subclass registration"
+    log "Patched $HARDWARE_PM: added GPU subclass registration"
     APPLIED=1
 }
 
 enable_service() {
     if command -v systemctl >/dev/null 2>&1; then
         systemctl daemon-reload || true
-        systemctl enable pve-xpu-sriov.service || log "WARNING: Failed to enable pve-xpu-sriov.service"
-        systemctl start pve-xpu-sriov.service || log "WARNING: Failed to start pve-xpu-sriov.service"
-        log "Enabled and started pve-xpu-sriov.service"
-        systemctl enable pve-xpu-vfio.service || log "WARNING: Failed to enable pve-xpu-vfio.service"
-        log "Enabled pve-xpu-vfio.service"
+        systemctl enable pve-gpu-sriov.service || log "WARNING: Failed to enable pve-gpu-sriov.service"
+        systemctl start pve-gpu-sriov.service || log "WARNING: Failed to start pve-gpu-sriov.service"
+        log "Enabled and started pve-gpu-sriov.service"
+        systemctl enable pve-gpu-vfio.service || log "WARNING: Failed to enable pve-gpu-vfio.service"
+        log "Enabled pve-gpu-vfio.service"
     fi
 }
 
@@ -130,8 +130,8 @@ restart_pveproxy() {
 case "$1" in
     configure)
         # Copy default VF templates to /etc/pve/local/ if not already present
-        if [ -f /usr/share/pve-xpu/xpu-vf-templates.conf ] && [ ! -f /etc/pve/local/xpu-vf-templates.conf ]; then
-            cp /usr/share/pve-xpu/xpu-vf-templates.conf /etc/pve/local/xpu-vf-templates.conf 2>/dev/null || \
+        if [ -f /usr/share/pve-gpu/gpu-vf-templates.conf ] && [ ! -f /etc/pve/local/gpu-vf-templates.conf ]; then
+            cp /usr/share/pve-gpu/gpu-vf-templates.conf /etc/pve/local/gpu-vf-templates.conf 2>/dev/null || \
                 log "WARNING: Could not copy templates to /etc/pve/local/ (pmxcfs may not be mounted)"
         fi
         patch_index_html

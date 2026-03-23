@@ -6,13 +6,13 @@ INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
 HARDWARE_PM="/usr/share/perl5/PVE/API2/Hardware.pm"
 
 log() {
-    logger -t pve-xpu-prerm "$@" || true
-    echo "pve-xpu-prerm: $*"
+    logger -t pve-gpu-prerm "$@" || true
+    echo "pve-gpu-prerm: $*"
 }
 
 restore_backup() {
     local file="$1"
-    local backup="${file}.pre-xpu"
+    local backup="${file}.pre-gpu"
     if [ -f "$backup" ]; then
         cp -p "$backup" "$file"
         chmod 644 "$file" 2>/dev/null || true
@@ -24,16 +24,16 @@ restore_backup() {
 
 disable_service() {
     if command -v systemctl >/dev/null 2>&1; then
-        systemctl stop pve-xpu-sriov.service 2>/dev/null || true
-        systemctl disable pve-xpu-sriov.service 2>/dev/null || true
-        log "Disabled pve-xpu-sriov.service"
-        systemctl stop pve-xpu-vfio.service 2>/dev/null || true
-        systemctl disable pve-xpu-vfio.service 2>/dev/null || true
-        log "Disabled pve-xpu-vfio.service"
+        systemctl stop pve-gpu-sriov.service 2>/dev/null || true
+        systemctl disable pve-gpu-sriov.service 2>/dev/null || true
+        log "Disabled pve-gpu-sriov.service"
+        systemctl stop pve-gpu-vfio.service 2>/dev/null || true
+        systemctl disable pve-gpu-vfio.service 2>/dev/null || true
+        log "Disabled pve-gpu-vfio.service"
         if [ "$1" = "remove" ]; then
             rm -f /etc/modprobe.d/pve-gpu-vfio.conf
             rm -f /etc/modules-load.d/pve-gpu-vfio.conf
-            rm -f /etc/pve-xpu-vfio.conf
+            rm -f /etc/pve-gpu-vfio.conf
             log "Cleaned up VFIO config files"
         fi
     fi

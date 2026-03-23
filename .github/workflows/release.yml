@@ -30,24 +30,24 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "PVE XPU/GPU Manager v${{ steps.version.outputs.version }}"
+          name: "PVE GPU Manager v${{ steps.version.outputs.version }}"
           body: |
-            ## PVE XPU/GPU Manager v${{ steps.version.outputs.version }}
+            ## PVE GPU Manager v${{ steps.version.outputs.version }}
 
             Intel discrete GPU management plugin for Proxmox VE 8.x / 9.x.
 
             ### Installation
             ```bash
             # Download the .deb
-            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/pve-xpu-manager_${{ steps.version.outputs.version }}_all.deb
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/pve-gpu-manager_${{ steps.version.outputs.version }}_all.deb
 
             # Install
-            dpkg -i pve-xpu-manager_${{ steps.version.outputs.version }}_all.deb
+            dpkg -i pve-gpu-manager_${{ steps.version.outputs.version }}_all.deb
             ```
 
             ### Uninstall
             ```bash
-            dpkg -r pve-xpu-manager
+            dpkg -r pve-gpu-manager
             ```
           files: |
             ../*.deb

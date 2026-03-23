@@ -8,4 +8,4 @@ pve-gpu-manager (1.0.0-1) stable; urgency=medium
   * Proxmox web UI integration as native node tab
   * Compatible with PVE 8.x and 9.x
 
- -- PVE XPU Manager <pve-xpu@localhost>  Sat, 22 Mar 2026 00:00:00 +0000
+ -- PVE GPU Manager <pve-gpu@localhost>  Sat, 22 Mar 2026 00:00:00 +0000

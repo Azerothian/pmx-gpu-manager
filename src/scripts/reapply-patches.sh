@@ -1,26 +1,26 @@
 #!/bin/sh
-# Idempotent script to re-apply PVE XPU Manager patches after PVE upgrades
-# Called by APT hook: /etc/apt/apt.conf.d/99-pve-xpu-reapply
+# Idempotent script to re-apply PVE GPU Manager patches after PVE upgrades
+# Called by APT hook: /etc/apt/apt.conf.d/99-pve-gpu-reapply
 # POSIX-compliant; safe for PVE 8.x and 9.x
 
 set -eu
 
 INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
 NODES_PM="/usr/share/perl5/PVE/API2/Nodes.pm"
-SCRIPT_TAG='<script src="/pve2/js/pve-xpu-plugin.js"></script>'
+SCRIPT_TAG='<script src="/pve2/js/pve-gpu-plugin.js"></script>'
 USE_STMT='use PVE::API2::Hardware::XPU;'
 REGISTER_STMT="PVE::API2::Nodes->register_method({ name => 'xpu', path => 'xpu', method => 'GET', description => 'XPU hardware management', permissions => { check => ['perm', '/nodes/{node}', ['Sys.Audit']] }, parameters => { additionalProperties => 0, properties => { node => get_standard_option('pve-node') } }, returns => { type => 'array', items => { type => 'object' } }, code => sub { return PVE::API2::Hardware::XPU->index(\$_[0]); } });"
 
 APPLIED=0
 
 log() {
-    logger -t pve-xpu-patches "$@" || true
-    echo "pve-xpu-patches: $*"
+    logger -t pve-gpu-patches "$@" || true
+    echo "pve-gpu-patches: $*"
 }
 
 backup_if_needed() {
     local file="$1"
-    local backup="${file}.pre-xpu"
+    local backup="${file}.pre-gpu"
     if [ ! -f "$backup" ] && [ -f "$file" ]; then
         cp "$file" "$backup"
         log "Backed up $file -> $backup"
@@ -122,7 +122,7 @@ restart_pveproxy() {
 }
 
 main() {
-    log "Checking PVE XPU Manager patches..."
+    log "Checking PVE GPU Manager patches..."
 
     patch_index_html
     patch_nodes_pm_use

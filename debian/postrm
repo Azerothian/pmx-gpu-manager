@@ -6,19 +6,19 @@ INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
 NODES_PM="/usr/share/perl5/PVE/API2/Nodes.pm"
 
 log() {
-    logger -t pve-xpu-postrm "$@" || true
-    echo "pve-xpu-postrm: $*"
+    logger -t pve-gpu-postrm "$@" || true
+    echo "pve-gpu-postrm: $*"
 }
 
 case "$1" in
     purge)
         # Remove config files
-        rm -f /etc/pve/local/xpu-sriov.conf
-        rm -f /etc/pve/local/xpu-vf-templates.conf
+        rm -f /etc/pve/local/gpu-sriov.conf
+        rm -f /etc/pve/local/gpu-vf-templates.conf
         log "Removed config files from /etc/pve/local/"
 
         # Remove backup files
-        for f in "${INDEX_TPL}.pre-xpu" "${NODES_PM}.pre-xpu"; do
+        for f in "${INDEX_TPL}.pre-gpu" "${NODES_PM}.pre-gpu"; do
             if [ -f "$f" ]; then
                 rm -f "$f"
                 log "Removed backup $f"
