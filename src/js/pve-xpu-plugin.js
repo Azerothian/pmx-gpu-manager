@@ -1324,31 +1324,8 @@ Ext.define('PVE.window.ModifyVfsDialog', {
             });
         };
 
-        if (newNumVfs === 0 && currentNumVfs > 0) {
-            // Remove all VFs
-            Proxmox.Utils.API2Request({
-                url: baseUrl + '?remove_persist=1',
-                method: 'DELETE',
-                success: function() {
-                    me.setLoading(false);
-                    me.close();
-                    me.fireEvent('vfsmodified', me);
-                },
-                failure: function(response, opts, error) {
-                    me.setLoading(false);
-                    Ext.Msg.alert(gettext('Error'), Ext.String.format(
-                        gettext('Failed to remove VFs: {0}'),
-                        error || response.htmlStatus
-                    ));
-                }
-            });
-        } else if (newNumVfs > 0) {
-            // Create or modify VFs in-place (backend handles increase/decrease)
-            doPost();
-        } else {
-            me.setLoading(false);
-            me.close();
-        }
+        // POST handles all cases: create, modify, and remove (num_vfs=0)
+        doPost();
     }
 });
 

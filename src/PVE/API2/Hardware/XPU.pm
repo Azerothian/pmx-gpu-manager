@@ -1115,6 +1115,18 @@ __PACKAGE__->register_method({
         die "Requested $num_vfs VFs exceeds device maximum $max_vfs\n"
             if $num_vfs > $max_vfs;
 
+        # Handle num_vfs=0: remove all VFs
+        if ($num_vfs == 0) {
+            eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
+            die "Failed to remove VFs: $@\n" if $@;
+            if ($do_persist) {
+                my $config = parse_ini_config($XPU_SRIOV_CONF);
+                delete $config->{$bdf};
+                write_ini_config($XPU_SRIOV_CONF, $config);
+            }
+            return { removed => 1 };
+        }
+
         # Pre-flight checks
         my $prechecks = run_prechecks($bdf, $card);
         unless ($prechecks->{all_pass}) {
