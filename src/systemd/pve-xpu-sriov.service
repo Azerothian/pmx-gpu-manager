@@ -2,6 +2,7 @@
 Description=Apply Intel GPU SR-IOV Configuration
 After=systemd-modules-load.service
 After=dev-dri-card0.device
+After=pve-xpu-vfio.service
 Wants=dev-dri-card0.device
 DefaultDependencies=no
 

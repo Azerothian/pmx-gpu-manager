@@ -1,0 +1,11 @@
+[Unit]
+Description=Bind selected Intel GPUs to VFIO-PCI
+Before=display-manager.service
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/pve-xpu/apply-vfio-config.sh
+
+[Install]
+WantedBy=multi-user.target

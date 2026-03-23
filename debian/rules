@@ -12,11 +12,15 @@ override_dh_auto_install:
 	# Scripts
 	install -D -m 0755 src/scripts/apply-sriov-config.sh \
 		$(CURDIR)/debian/pve-gpu-manager/usr/lib/pve-xpu/apply-sriov-config.sh
+	install -D -m 0755 src/scripts/apply-vfio-config.sh \
+		$(CURDIR)/debian/pve-gpu-manager/usr/lib/pve-xpu/apply-vfio-config.sh
 	install -D -m 0755 src/scripts/reapply-patches.sh \
 		$(CURDIR)/debian/pve-gpu-manager/usr/lib/pve-xpu/reapply-patches.sh
 	# Systemd service
 	install -D -m 0644 src/systemd/pve-xpu-sriov.service \
 		$(CURDIR)/debian/pve-gpu-manager/lib/systemd/system/pve-xpu-sriov.service
+	install -D -m 0644 src/systemd/pve-xpu-vfio.service \
+		$(CURDIR)/debian/pve-gpu-manager/lib/systemd/system/pve-xpu-vfio.service
 	# Default templates (staged; postinst copies to /etc/pve/local/)
 	install -D -m 0644 config/xpu-vf-templates.conf \
 		$(CURDIR)/debian/pve-gpu-manager/usr/share/pve-xpu/xpu-vf-templates.conf

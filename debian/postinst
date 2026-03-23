@@ -114,6 +114,8 @@ enable_service() {
         systemctl enable pve-xpu-sriov.service || log "WARNING: Failed to enable pve-xpu-sriov.service"
         systemctl start pve-xpu-sriov.service || log "WARNING: Failed to start pve-xpu-sriov.service"
         log "Enabled and started pve-xpu-sriov.service"
+        systemctl enable pve-xpu-vfio.service || log "WARNING: Failed to enable pve-xpu-vfio.service"
+        log "Enabled pve-xpu-vfio.service"
     fi
 }
 

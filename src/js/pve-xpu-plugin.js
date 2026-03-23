@@ -76,7 +76,8 @@ Ext.define('PVE.store.XpuDevices', {
         'firmware_version',
         { name: 'assigned_vms', type: 'auto' },
         { name: 'pf_assigned', type: 'boolean' },
-        { name: 'pf_vmid', type: 'auto' }
+        { name: 'pf_vmid', type: 'auto' },
+        { name: 'vfio_configured', type: 'boolean' }
     ],
 
     proxy: {
@@ -276,6 +277,19 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
                 }
                 return '';
             }
+        },
+        {
+            header: gettext('VFIO'),
+            dataIndex: 'vfio_configured',
+            width: 70,
+            align: 'center',
+            renderer: function(val) {
+                if (val) {
+                    return '<span style="color:#e84040;font-weight:bold;">' +
+                        '<i class="fa fa-plug"></i> ' + gettext('Bound') + '</span>';
+                }
+                return '';
+            }
         }
     ],
 
@@ -287,6 +301,16 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
             handler: function() {
                 this.up('xpuDeviceGrid').reload();
             }
+        },
+        {
+            xtype: 'button',
+            itemId: 'vfioBtn',
+            text: gettext('Bind to VFIO-PCI'),
+            iconCls: 'fa fa-plug',
+            disabled: true,
+            handler: function() {
+                this.up('xpuDeviceGrid').toggleVfio();
+            }
         }
     ],
 
@@ -296,8 +320,19 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
         me.callParent();
 
         me.on('selectionchange', function(selModel, records) {
+            var vfioBtn = me.down('#vfioBtn');
             if (records.length > 0) {
-                me.fireEvent('deviceselect', me, records[0]);
+                var rec = records[0];
+                me.fireEvent('deviceselect', me, rec);
+                if (vfioBtn) {
+                    var isVfio = rec.get('vfio_configured');
+                    var numVfs = rec.get('sriov_numvfs') || 0;
+                    vfioBtn.setText(isVfio ? gettext('Unbind from VFIO-PCI') : gettext('Bind to VFIO-PCI'));
+                    vfioBtn.setIconCls(isVfio ? 'fa fa-eject' : 'fa fa-plug');
+                    vfioBtn.setDisabled(!isVfio && numVfs > 0);
+                }
+            } else if (vfioBtn) {
+                vfioBtn.setDisabled(true);
             }
         });
 
@@ -343,6 +378,75 @@ Ext.define('PVE.grid.XpuDeviceGrid', {
                     gettext('Failed to load GPU devices: {0}'),
                     error || response.htmlStatus
                 ));
+            }
+        });
+    },
+
+    toggleVfio: function() {
+        var me = this;
+        var sel = me.getSelectionModel().getSelection();
+        if (!sel.length) return;
+        var rec = sel[0];
+
+        var isVfio = rec.get('vfio_configured');
+        var action = isVfio ? 'unbind' : 'bind';
+        var deviceName = rec.get('device_name');
+        var bdf = rec.get('bdf');
+        var nodeName = me.pveSelNode.data.node;
+
+        Ext.Msg.show({
+            title: isVfio ? gettext('Unbind from VFIO-PCI') : gettext('Bind to VFIO-PCI'),
+            msg: Ext.String.format(
+                gettext('This will {0} {1} ({2}) {3} vfio-pci driver.'),
+                action, deviceName, bdf, isVfio ? gettext('from') : gettext('to')
+            ),
+            buttons: Ext.Msg.OKCANCEL,
+            icon: Ext.Msg.QUESTION,
+            fn: function(btn) {
+                if (btn !== 'ok') return;
+
+                Proxmox.Utils.API2Request({
+                    url: '/nodes/' + encodeURIComponent(nodeName) +
+                         '/hardware/xpu/' + encodeURIComponent(bdf) + '/vfio',
+                    method: 'POST',
+                    params: { action: action, persist: 1 },
+                    success: function(response) {
+                        var data = response.result && response.result.data;
+                        var rebootRequired = data && data.reboot_required;
+
+                        if (rebootRequired) {
+                            Ext.Msg.show({
+                                title: gettext('Reboot Required'),
+                                msg: gettext('Driver binding changed and boot configuration updated.') +
+                                     '<br><br>' +
+                                     gettext('A reboot is required for the change to take full effect.'),
+                                buttons: Ext.Msg.YESNO,
+                                buttonText: {
+                                    yes: gettext('Reboot Now'),
+                                    no: gettext('Later')
+                                },
+                                icon: Ext.Msg.WARNING,
+                                fn: function(rbtn) {
+                                    if (rbtn === 'yes') {
+                                        Proxmox.Utils.API2Request({
+                                            url: '/nodes/' + encodeURIComponent(nodeName) + '/status',
+                                            method: 'POST',
+                                            params: { command: 'reboot' },
+                                            failure: function(resp) {
+                                                Ext.Msg.alert(gettext('Error'), resp.htmlStatus);
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                        }
+
+                        me.reload();
+                    },
+                    failure: function(response, opts, error) {
+                        Ext.Msg.alert(gettext('Error'), error || response.htmlStatus);
+                    }
+                });
             }
         });
     }
@@ -1411,17 +1515,6 @@ Ext.define('PVE.panel.XpuSriovPanel', {
                         iconCls: 'fa fa-sliders',
                         disabled: true,
                         handler: function() { me.openModifyDialog(); }
-                    },
-                    {
-                        xtype: 'button',
-                        itemId: 'vfioBtn',
-                        text: gettext('Bind to VFIO-PCI'),
-                        iconCls: 'fa fa-plug',
-                        disabled: true,
-                        handler: function() {
-                            var panel = this.up('panel');
-                            panel.toggleVfio();
-                        }
                     }
                 ]
             }
@@ -1445,17 +1538,6 @@ Ext.define('PVE.panel.XpuSriovPanel', {
             return;
         }
         me.show();
-
-        // Update VFIO button state
-        var vfioBtn = me.down('#vfioBtn');
-        if (vfioBtn && deviceRecord) {
-            var isVfio = driver === 'vfio-pci';
-            var numVfs = deviceRecord.get('sriov_numvfs') || 0;
-            vfioBtn.setText(isVfio ? gettext('Unbind from VFIO-PCI') : gettext('Bind to VFIO-PCI'));
-            vfioBtn.setIconCls(isVfio ? 'fa fa-eject' : 'fa fa-plug');
-            // Disable if VFs are active (can't bind to VFIO with VFs)
-            vfioBtn.setDisabled(!isVfio && numVfs > 0);
-        }
 
         // Disable SR-IOV management when PF is assigned to a VM (whole-GPU passthrough)
         var pfAssigned = deviceRecord.get('pf_assigned');
@@ -1562,84 +1644,6 @@ Ext.define('PVE.panel.XpuSriovPanel', {
         // Load current VF data from the grid store
         var vfStore = me.down('#vfGrid').getStore();
         dlg.loadVfData(vfStore);
-    },
-
-    toggleVfio: function() {
-        var me = this;
-        var rec = me.deviceRecord;
-        if (!rec) return;
-
-        var driver = rec.get('driver');
-        var isVfio = driver === 'vfio-pci';
-        var action = isVfio ? 'unbind' : 'bind';
-        var deviceName = rec.get('device_name');
-        var bdf = rec.get('bdf');
-        var deviceId = rec.get('device_id') || '';
-        var nodeName = me.pveSelNode.data.node;
-
-        // Warning for bind: all devices with same ID will be affected at boot
-        var warning = '';
-        if (!isVfio) {
-            warning = '<br><br><b>' + gettext('Warning') + ':</b> ' +
-                Ext.String.format(gettext('Persisting will bind ALL devices with ID {0} to vfio-pci at boot.'), deviceId);
-        }
-
-        Ext.Msg.show({
-            title: isVfio ? gettext('Unbind from VFIO-PCI') : gettext('Bind to VFIO-PCI'),
-            msg: Ext.String.format(
-                gettext('This will {0} {1} ({2}) {3} vfio-pci driver.'),
-                action, deviceName, bdf, isVfio ? gettext('from') : gettext('to')
-            ) + warning,
-            buttons: Ext.Msg.OKCANCEL,
-            icon: Ext.Msg.QUESTION,
-            fn: function(btn) {
-                if (btn !== 'ok') return;
-
-                Proxmox.Utils.API2Request({
-                    url: '/nodes/' + encodeURIComponent(nodeName) +
-                         '/hardware/xpu/' + encodeURIComponent(bdf) + '/vfio',
-                    method: 'POST',
-                    params: { action: action, persist: 1 },
-                    success: function(response) {
-                        var data = response.result && response.result.data;
-                        var rebootRequired = data && data.reboot_required;
-
-                        if (rebootRequired) {
-                            Ext.Msg.show({
-                                title: gettext('Reboot Required'),
-                                msg: gettext('Driver binding changed and boot configuration updated.') +
-                                     '<br><br>' +
-                                     gettext('A reboot is required for the change to take full effect.'),
-                                buttons: Ext.Msg.YESNO,
-                                buttonText: {
-                                    yes: gettext('Reboot Now'),
-                                    no: gettext('Later')
-                                },
-                                icon: Ext.Msg.WARNING,
-                                fn: function(rbtn) {
-                                    if (rbtn === 'yes') {
-                                        Proxmox.Utils.API2Request({
-                                            url: '/nodes/' + encodeURIComponent(nodeName) + '/status',
-                                            method: 'POST',
-                                            params: { command: 'reboot' },
-                                            failure: function(resp) {
-                                                Ext.Msg.alert(gettext('Error'), resp.htmlStatus);
-                                            }
-                                        });
-                                    }
-                                }
-                            });
-                        }
-
-                        // Refresh device grid
-                        me.fireEvent('vfschanged', me);
-                    },
-                    failure: function(response, opts, error) {
-                        Ext.Msg.alert(gettext('Error'), error || response.htmlStatus);
-                    }
-                });
-            }
-        });
     }
 });
 

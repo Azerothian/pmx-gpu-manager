@@ -27,6 +27,15 @@ disable_service() {
         systemctl stop pve-xpu-sriov.service 2>/dev/null || true
         systemctl disable pve-xpu-sriov.service 2>/dev/null || true
         log "Disabled pve-xpu-sriov.service"
+        systemctl stop pve-xpu-vfio.service 2>/dev/null || true
+        systemctl disable pve-xpu-vfio.service 2>/dev/null || true
+        log "Disabled pve-xpu-vfio.service"
+        if [ "$1" = "remove" ]; then
+            rm -f /etc/modprobe.d/pve-gpu-vfio.conf
+            rm -f /etc/modules-load.d/pve-gpu-vfio.conf
+            rm -f /etc/pve-xpu-vfio.conf
+            log "Cleaned up VFIO config files"
+        fi
     fi
 }
 
