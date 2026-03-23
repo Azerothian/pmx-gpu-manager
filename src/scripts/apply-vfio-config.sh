@@ -49,6 +49,8 @@ main() {
     log "Loading native GPU drivers for remaining cards"
     modprobe xe 2>/dev/null || true
     modprobe i915 2>/dev/null || true
+    modprobe nvidia 2>/dev/null || true
+    modprobe nouveau 2>/dev/null || true
 
     log "VFIO binding complete ($bound devices bound)"
 }

@@ -11,40 +11,24 @@ use File::Glob ':bsd_glob';
 use PVE::Tools qw(run_command file_get_contents file_set_contents);
 
 # ---------------------------------------------------------------------------
-# Device family map
+# Vendor plugin registry
 # ---------------------------------------------------------------------------
-my $DEVICE_FAMILIES = {
-    '0x56c0' => { family => 'flex',     max_vfs => 31, tiles => 1 },
-    '0x56c1' => { family => 'flex',     max_vfs => 31, tiles => 1 },
-    '0x56c2' => { family => 'flex',     max_vfs => 31, tiles => 1 },
-    '0x0bd4' => { family => 'pvc',      max_vfs => 62, tiles => 2 },
-    '0x0bd5' => { family => 'pvc',      max_vfs => 62, tiles => 2 },
-    '0x0bd6' => { family => 'pvc',      max_vfs => 62, tiles => 2 },
-    '0x0bda' => { family => 'pvc_ext',  max_vfs => 63, tiles => 2 },
-    '0x0bdb' => { family => 'pvc_ext',  max_vfs => 63, tiles => 2 },
-    '0x0b6e' => { family => 'pvc_ext',  max_vfs => 63, tiles => 2 },
-    '0xe211' => { family => 'bmg',      max_vfs => 24, tiles => 1 },
-    '0xe212' => { family => 'bmg',      max_vfs => 24, tiles => 1 },
-    '0xe222' => { family => 'bmg',      max_vfs => 24, tiles => 1 },
-    '0xe223' => { family => 'bmg_12vf', max_vfs => 12, tiles => 1 },
-};
+my %VENDOR_PLUGINS;
 
-# Fallback device name map when lspci is unavailable
-my $DEVICE_NAMES = {
-    '0x56c0' => 'Intel Data Center GPU Flex 170',
-    '0x56c1' => 'Intel Data Center GPU Flex 140',
-    '0x56c2' => 'Intel Data Center GPU Flex 140 (2T)',
-    '0x0bd4' => 'Intel Data Center GPU Max 1550',
-    '0x0bd5' => 'Intel Data Center GPU Max 1100',
-    '0x0bd6' => 'Intel Data Center GPU Max 1100C',
-    '0x0bda' => 'Intel Data Center GPU Max 1450',
-    '0x0bdb' => 'Intel Data Center GPU Max 1350',
-    '0x0b6e' => 'Intel Data Center GPU Max (PVC-XT)',
-    '0xe211' => 'Intel Battlemage GPU G21',
-    '0xe212' => 'Intel Battlemage GPU G21',
-    '0xe222' => 'Intel Battlemage GPU G21',
-    '0xe223' => 'Intel Battlemage GPU G21 (12VF)',
-};
+sub register_vendor {
+    my ($vendor_id, $plugin) = @_;
+    $VENDOR_PLUGINS{lc($vendor_id)} = $plugin;
+}
+
+sub get_vendor_plugin {
+    my ($vendor_id) = @_;
+    $vendor_id =~ s/^0x//;
+    return $VENDOR_PLUGINS{lc($vendor_id)};
+}
+
+# Load vendor plugins (they register themselves on use)
+use PVE::API2::Hardware::XPU::Intel;
+use PVE::API2::Hardware::XPU::Nvidia;
 
 # BDF format regex
 my $BDF_RE = '[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]';
@@ -148,278 +132,10 @@ sub resolve_drm_card {
 }
 
 # ---------------------------------------------------------------------------
-# Identify device from device_id string
-# ---------------------------------------------------------------------------
-sub identify_device {
-    my ($device_id) = @_;
-    # Normalise to lowercase 0x-prefixed
-    $device_id = lc($device_id);
-    $device_id = "0x$device_id" unless $device_id =~ /^0x/;
-    return $DEVICE_FAMILIES->{$device_id};
-}
-
-# ---------------------------------------------------------------------------
-# Read telemetry for a DRM card
-# ---------------------------------------------------------------------------
-sub read_telemetry {
-    my ($card, $bdf) = @_;
-    my $result = {
-        temperature_c      => undef,
-        mem_temperature_c  => undef,
-        power_w            => undef,
-        power_tdp_w        => undef,
-        clock_mhz          => undef,
-        clock_max_mhz      => undef,
-        gpu_util_pct       => undef,
-        lmem_total_mb      => undef,
-        lmem_used_mb       => undef,
-        fan_rpm            => undef,
-        throttled          => undef,
-        health             => 'OK',
-    };
-
-    # Temperature: read all hwmon temp sensors, match by label
-    my $hwmon_base = sysfs_path("/sys/class/drm/$card/device/hwmon");
-    my @hwmon_dirs = bsd_glob("$hwmon_base/hwmon*");
-    my $got_labeled_temp = 0;
-    for my $hwmon_dir (@hwmon_dirs) {
-        my @temp_files = bsd_glob("$hwmon_dir/temp*_input");
-        for my $tf (@temp_files) {
-            (my $label_file = $tf) =~ s/_input$/_label/;
-            my $label = '';
-            if (open(my $lfh, '<', $label_file)) {
-                $label = <$lfh>;
-                chomp $label if defined $label;
-                close($lfh);
-            }
-
-            open(my $fh, '<', $tf) or next;
-            my $val = <$fh>;
-            close($fh);
-            next unless defined $val;
-            chomp $val;
-            my $temp = $val / 1000.0;
-
-            if ($label eq 'pkg' || $label eq 'GPU') {
-                $result->{temperature_c} = $temp;
-                $got_labeled_temp = 1;
-            } elsif ($label eq 'vram' || $label eq 'Memory') {
-                $result->{mem_temperature_c} = $temp;
-                $got_labeled_temp = 1;
-            } elsif (!$got_labeled_temp && !defined $result->{temperature_c}) {
-                # Fallback: first temp sensor if no labels
-                $result->{temperature_c} = $temp;
-            }
-        }
-    }
-
-    # Power: try power*_input (i915, microwatts -> W) first,
-    # then compute from energy*_input delta (xe driver, microjoules)
-    HWMON_POWER: for my $hwmon_dir (@hwmon_dirs) {
-        # Method 1: direct power reading (i915)
-        my @pwr_files = bsd_glob("$hwmon_dir/power*_input");
-        for my $pf (@pwr_files) {
-            open(my $fh, '<', $pf) or next;
-            my $val = <$fh>;
-            close($fh);
-            if (defined $val) {
-                chomp $val;
-                $result->{power_w} = sprintf("%.1f", $val / 1_000_000.0);
-                last HWMON_POWER;
-            }
-        }
-
-        # Method 2: energy counter delta (xe driver)
-        my @energy_files = bsd_glob("$hwmon_dir/energy1_input");
-        for my $ef (@energy_files) {
-            open(my $fh1, '<', $ef) or next;
-            my $e1 = <$fh1>;
-            close($fh1);
-            chomp $e1 if defined $e1;
-            next unless defined $e1 && $e1 =~ /^\d+$/;
-
-            # Brief sleep for delta measurement
-            select(undef, undef, undef, 0.1);  # 100ms
-
-            open(my $fh2, '<', $ef) or next;
-            my $e2 = <$fh2>;
-            close($fh2);
-            chomp $e2 if defined $e2;
-            next unless defined $e2 && $e2 =~ /^\d+$/;
-
-            my $delta_uj = $e2 - $e1;
-            if ($delta_uj > 0) {
-                # delta_uj / 0.1s = microwatts, convert to watts
-                $result->{power_w} = sprintf("%.1f", ($delta_uj / 100_000.0));
-                last HWMON_POWER;
-            }
-        }
-
-        # Method 3: TDP from power1_cap (fallback)
-        if (!defined $result->{power_w}) {
-            my @cap_files = bsd_glob("$hwmon_dir/power1_cap");
-            for my $cf (@cap_files) {
-                open(my $fh, '<', $cf) or next;
-                my $val = <$fh>;
-                close($fh);
-                if (defined $val) {
-                    chomp $val;
-                    $result->{power_tdp_w} = sprintf("%.0f", $val / 1_000_000.0);
-                    last;
-                }
-            }
-        }
-    }
-
-    # Fan speed: hwmon/hwmon*/fan*_input (RPM)
-    for my $hwmon_dir (@hwmon_dirs) {
-        my @fan_files = bsd_glob("$hwmon_dir/fan*_input");
-        for my $ff (@fan_files) {
-            open(my $fh, '<', $ff) or next;
-            my $val = <$fh>;
-            close($fh);
-            if (defined $val) {
-                chomp $val;
-                $result->{fan_rpm} = int($val) if $val =~ /^\d+$/;
-                last;
-            }
-        }
-        last if defined $result->{fan_rpm};
-    }
-
-    # Clock rate: xe driver uses tile0/gt0/freq0/ (act_freq + max_freq)
-    # i915 uses device/tile*/gt_cur_freq_mhz
-    if (defined $bdf) {
-        my $card_dev = sysfs_path("/sys/class/drm/$card/device");
-        # xe driver path
-        my $freq_base = "$card_dev/tile0/gt0/freq0";
-        if (-d $freq_base) {
-            my $act = do { open(my $f, '<', "$freq_base/act_freq") or undef; defined $f ? do { my $v = <$f>; close $f; chomp $v if defined $v; $v } : undef };
-            my $max = do { open(my $f, '<', "$freq_base/max_freq") or undef; defined $f ? do { my $v = <$f>; close $f; chomp $v if defined $v; $v } : undef };
-            $result->{clock_mhz} = int($act) if defined $act && $act =~ /^\d+$/;
-            $result->{clock_max_mhz} = int($max) if defined $max && $max =~ /^\d+$/;
-        } else {
-            # i915 fallback
-            my @freq_files = bsd_glob("$card_dev/tile*/gt_cur_freq_mhz");
-            for my $ff (@freq_files) {
-                open(my $fh, '<', $ff) or next;
-                my $val = <$fh>;
-                close($fh);
-                if (defined $val) {
-                    chomp $val;
-                    $result->{clock_mhz} = int($val) if $val =~ /^\d+$/;
-                    last;
-                }
-            }
-        }
-    }
-
-    # VRAM: from debugfs vram0_mm (size + usage in bytes)
-    if (defined $bdf) {
-        my $vram_mm_path = sysfs_path("/sys/kernel/debug/dri/$bdf/vram0_mm");
-        if (open(my $fh, '<', $vram_mm_path)) {
-            my $total_bytes = 0;
-            while (my $line = <$fh>) {
-                if ($line =~ /^\s*size:\s*(\d+)/) {
-                    $total_bytes = $1;
-                }
-                if ($line =~ /^\s*usage:\s*(\d+)/) {
-                    $result->{lmem_used_mb} = int($1 / (1024 * 1024));
-                }
-            }
-            close($fh);
-
-            # Subtract PF lmem_spare (reserved for PF, not provisionable to VFs)
-            my $spare_path = sysfs_path("/sys/kernel/debug/dri/$bdf/gt0/pf/lmem_spare");
-            if (open(my $sfh, '<', $spare_path)) {
-                my $spare = <$sfh>;
-                close($sfh);
-                if (defined $spare) {
-                    chomp $spare;
-                    $total_bytes -= $spare if $spare =~ /^\d+$/;
-                }
-            }
-            $result->{lmem_total_mb} = int($total_bytes / (1024 * 1024)) if $total_bytes > 0;
-        }
-    }
-
-    # Fallback: LMEM free from sysfs iov path (i915 driver)
-    if (!defined $result->{lmem_total_mb}) {
-        my $lmem_path = "/sys/class/drm/$card/iov/pf/gt0/available/lmem_free";
-        my $lmem_val  = read_sysfs($lmem_path);
-        if (defined $lmem_val && $lmem_val =~ /^\d+$/) {
-            $result->{lmem_total_mb} = int($lmem_val / (1024 * 1024));
-        }
-    }
-
-    # GPU utilization via perf PMU counters (xe driver)
-    if (defined $bdf) {
-        my $pmu_dev = "xe_$bdf";
-        $pmu_dev =~ s/:/_/g;  # xe_0000_03_00.0
-        if (-d "/sys/bus/event_source/devices/$pmu_dev") {
-        eval {
-            my ($active, $total);
-            run_command(
-                ['perf', 'stat', '-e',
-                 "$pmu_dev/engine-active-ticks/,$pmu_dev/engine-total-ticks/",
-                 '-I', '200', '-x', ',', 'sleep', '0.3'],
-                outfunc => sub {},
-                errfunc => sub {
-                    my $line = shift;
-                    if ($line =~ /(\d+),,\Q$pmu_dev\E\/engine-active-ticks\//) {
-                        $active = $1;
-                    } elsif ($line =~ /(\d+),,\Q$pmu_dev\E\/engine-total-ticks\//) {
-                        $total = $1;
-                    }
-                },
-            );
-            if (defined $active && defined $total && $total > 0) {
-                $result->{gpu_util_pct} = sprintf("%.1f", ($active / $total) * 100);
-            } else {
-                $result->{gpu_util_pct} = 0;
-            }
-        };
-        # Non-fatal: perf may not be installed
-        }
-    }
-
-    # Throttle detection
-    if (defined $bdf) {
-        my $card_dev = sysfs_path("/sys/class/drm/$card/device");
-        my $throttle_path = "$card_dev/tile0/gt0/freq0/throttle";
-        if (open(my $fh, '<', $throttle_path)) {
-            my $val = <$fh>;
-            close($fh);
-            if (defined $val) {
-                chomp $val;
-                $result->{throttled} = ($val ne '' && $val ne '0') ? \1 : \0;
-            }
-        }
-    }
-
-    # Derive health status from thresholds
-    my @issues;
-    if (defined $result->{temperature_c} && $result->{temperature_c} >= 95) {
-        push @issues, 'GPU temp critical';
-    }
-    if (defined $result->{mem_temperature_c} && $result->{mem_temperature_c} >= 85) {
-        push @issues, 'VRAM temp critical';
-    }
-    if ($result->{throttled} && ${$result->{throttled}}) {
-        push @issues, 'Throttled';
-    }
-    if (@issues) {
-        $result->{health} = join(', ', @issues);
-    }
-
-    return $result;
-}
-
-# ---------------------------------------------------------------------------
 # Run pre-flight checks
 # ---------------------------------------------------------------------------
 sub run_prechecks {
-    my ($bdf, $card) = @_;
+    my ($bdf, $card, $vendor_id) = @_;
 
     my %checks;
     my $all_pass = 1;
@@ -465,21 +181,27 @@ sub run_prechecks {
         };
     }
 
-    # 4. GPU kernel driver bound (i915 for Flex/PVC, xe for Battlemage)
+    # 4. GPU kernel driver bound — delegate to vendor plugin
     {
         my $driver_link = sysfs_path("/sys/bus/pci/devices/$bdf/driver");
         my $driver = '';
         if (-l $driver_link) {
             $driver = basename(readlink($driver_link) // '');
         }
-        my $pass = ($driver eq 'i915' || $driver eq 'xe') ? 1 : 0;
-        $all_pass = 0 unless $pass;
-        $checks{gpu_driver} = {
-            pass   => $pass ? \1 : \0,
-            detail => $pass
-                ? "$driver driver bound"
-                : "Driver '$driver' bound (expected i915 or xe)",
-        };
+
+        my $plugin = get_vendor_plugin($vendor_id);
+        if ($plugin) {
+            my $driver_check = $plugin->run_prechecks($bdf, $card, $driver);
+            $all_pass = 0 unless $driver_check->{pass};
+            $checks{gpu_driver} = $driver_check;
+        } else {
+            # Fallback: just report the driver
+            $checks{gpu_driver} = {
+                pass   => $driver ne '' ? \1 : \0,
+                detail => $driver ne '' ? "$driver driver bound" : 'No driver bound',
+            };
+            $all_pass = 0 unless $driver ne '';
+        }
     }
 
     return {
@@ -535,30 +257,14 @@ sub write_ini_config {
 }
 
 # ---------------------------------------------------------------------------
-# Get VF quota file paths (sysfs or debugfs depending on family)
+# Get VF quota file paths — delegated to vendor plugin
 # ---------------------------------------------------------------------------
 sub get_vf_paths {
-    my ($family, $card, $bdf, $vf_index, $tile) = @_;
+    my ($family, $card, $bdf, $vf_index, $tile, $vendor_id) = @_;
 
-    if ($family eq 'bmg' || $family eq 'bmg_12vf') {
-        # BMG uses debugfs
-        my $base = "/sys/kernel/debug/dri/$bdf/gt$tile/vf$vf_index";
-        return {
-            lmem_quota       => "$base/lmem_quota",
-            ggtt_quota       => "$base/ggtt_quota",
-            exec_quantum_ms  => "$base/exec_quantum_ms",
-            preempt_timeout_us => "$base/preempt_timeout_us",
-        };
-    } else {
-        # Flex / PVC / PVC-XT use sysfs iov paths
-        my $base = "/sys/class/drm/$card/iov/vf$vf_index/gt$tile";
-        return {
-            lmem_quota         => "$base/lmem_quota",
-            ggtt_quota         => "$base/ggtt_quota",
-            exec_quantum_ms    => "$base/exec_quantum_ms",
-            preempt_timeout_us => "$base/preempt_timeout_us",
-        };
-    }
+    my $plugin = get_vendor_plugin($vendor_id);
+    return $plugin->get_vf_paths($family, $card, $bdf, $vf_index, $tile) if $plugin;
+    return undef;
 }
 
 # ---------------------------------------------------------------------------
@@ -699,7 +405,7 @@ sub check_vf_vm_assignments {
 # Internal helper: get device name via lspci, fallback to static map
 # ---------------------------------------------------------------------------
 sub _get_device_name {
-    my ($bdf, $device_id) = @_;
+    my ($bdf, $device_id, $vendor_id) = @_;
     my $name;
     eval {
         my $output = '';
@@ -716,9 +422,11 @@ sub _get_device_name {
     };
     return $name if defined $name && $name ne '';
 
-    my $norm = lc($device_id);
-    $norm = "0x$norm" unless $norm =~ /^0x/;
-    return $DEVICE_NAMES->{$norm} // "Intel GPU ($device_id)";
+    my $plugin = get_vendor_plugin($vendor_id);
+    if ($plugin && $plugin->can('device_name_fallback')) {
+        return $plugin->device_name_fallback($device_id);
+    }
+    return "GPU ($device_id)";
 }
 
 # ---------------------------------------------------------------------------
@@ -758,10 +466,11 @@ sub _collect_device {
     return undef if -l sysfs_path("$base/physfn");
 
     my $vendor_id  = read_sysfs("$base/vendor")    // '';
-    return undef unless lc($vendor_id) eq '0x8086';
+    my $plugin = get_vendor_plugin($vendor_id);
+    return undef unless defined $plugin;
 
     my $device_id  = read_sysfs("$base/device")    // '';
-    my $info = identify_device($device_id);
+    my $info = $plugin->identify_device($device_id);
     return undef unless defined $info;
 
     my $card = resolve_drm_card($bdf);
@@ -794,7 +503,7 @@ sub _collect_device {
 
     my $norm_device_id = lc($device_id);
     $norm_device_id = "0x$norm_device_id" unless $norm_device_id =~ /^0x/;
-    my $device_name = _get_device_name($bdf, $norm_device_id);
+    my $device_name = _get_device_name($bdf, $norm_device_id, $vendor_id);
 
     # Check persistence
     my $persist_config = parse_ini_config($XPU_SRIOV_CONF);
@@ -844,30 +553,20 @@ sub _collect_device {
         $record->{assigned_vms} = defined $pf_vm ? [$pf_vm] : [];
     }
 
-    # Read GuC firmware version from debugfs
+    # Read firmware version from vendor plugin
     if (defined $bdf) {
-        my $guc_path = sysfs_path("/sys/kernel/debug/dri/$bdf/gt0/uc/guc_info");
-        if (open(my $fh, '<', $guc_path)) {
-            while (my $line = <$fh>) {
-                if ($line =~ /found release version\s+([\d.]+)/) {
-                    $record->{firmware_version} = $1;
-                    last;
-                }
-            }
-            close($fh);
-        }
-        $record->{firmware_version} //= '';
+        $record->{firmware_version} = $plugin->read_firmware_version($bdf) // '';
     }
 
     if ($with_telemetry && defined $card) {
-        $record->{telemetry} = read_telemetry($card, $bdf);
+        $record->{telemetry} = $plugin->read_telemetry($card, $bdf, $driver);
     }
 
     return $record;
 }
 
 # ---------------------------------------------------------------------------
-# Internal: enumerate all Intel GPU devices on the system
+# Internal: enumerate all supported GPU devices on the system
 # ---------------------------------------------------------------------------
 sub _enumerate_devices {
     my @devices;
@@ -953,7 +652,7 @@ __PACKAGE__->register_method({
         my ($param) = @_;
         my $bdf = $param->{bdf};
         my $rec = _collect_device($bdf, 1);
-        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported GPU\n" unless defined $rec;
         return $rec;
     },
 });
@@ -985,10 +684,10 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported GPU\n" unless defined $rec;
 
         my $card        = $rec->{drm_card};
-        my $prechecks   = run_prechecks($bdf, $card);
+        my $prechecks   = run_prechecks($bdf, $card, $rec->{vendor_id});
 
         # Available resources per tile
         my @tile_resources;
@@ -1108,10 +807,11 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported GPU\n" unless defined $rec;
 
         my $family    = $rec->{family};
         my $card      = $rec->{drm_card};
+        my $vid       = $rec->{vendor_id};
         my $num_vfs   = int($param->{num_vfs});
         my $max_vfs   = int($rec->{max_vfs});
         my $tiles     = int($rec->{tiles});
@@ -1130,7 +830,7 @@ __PACKAGE__->register_method({
         }
 
         # Pre-flight checks
-        my $prechecks = run_prechecks($bdf, $card);
+        my $prechecks = run_prechecks($bdf, $card, $vid);
         unless ($prechecks->{all_pass}) {
             my @failures;
             for my $check (sort keys %{$prechecks->{checks}}) {
@@ -1219,7 +919,7 @@ __PACKAGE__->register_method({
             eval {
                 for my $vf (1 .. $num_vfs) {
                     for my $t (0 .. ($tiles - 1)) {
-                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t, $vid);
                         write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
                         write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
                         write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
@@ -1256,7 +956,7 @@ __PACKAGE__->register_method({
                 eval {
                     for my $vf (1 .. $num_vfs) {
                         for my $t (0 .. ($tiles - 1)) {
-                            my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                            my $paths = get_vf_paths($family, $card, $bdf, $vf, $t, $vid);
                             write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
                             write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
                             write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
@@ -1277,7 +977,7 @@ __PACKAGE__->register_method({
             eval {
                 for my $vf (1 .. $num_vfs) {
                     for my $t (0 .. ($tiles - 1)) {
-                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t, $vid);
                         write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
                         write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
                     }
@@ -1290,7 +990,7 @@ __PACKAGE__->register_method({
             eval {
                 for my $vf (1 .. $num_vfs) {
                     for my $t (0 .. ($tiles - 1)) {
-                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t);
+                        my $paths = get_vf_paths($family, $card, $bdf, $vf, $t, $vid);
                         write_sysfs($paths->{lmem_quota},         $lmem_per_vf);
                         write_sysfs($paths->{ggtt_quota},         $ggtt_per_vf);
                         write_sysfs($paths->{exec_quantum_ms},    $exec_quantum_ms);
@@ -1391,7 +1091,7 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported GPU\n" unless defined $rec;
 
         my $current_numvfs = int($rec->{sriov_numvfs});
 
@@ -1452,11 +1152,16 @@ sub _write_vfio_config {
         $content .= "$_\n" for @$bdfs;
         file_set_contents($VFIO_CONF, $content);
 
-        # Blacklist xe/i915 so VFIO service can bind first
-        file_set_contents($VFIO_MODPROBE,
-            "# Managed by pve-gpu-manager - blacklist GPU drivers for VFIO binding\n" .
-            "blacklist xe\n" .
-            "blacklist i915\n");
+        # Blacklist all known GPU drivers so VFIO service can bind first
+        my @blacklist;
+        for my $vp (values %VENDOR_PLUGINS) {
+            push @blacklist, @{$vp->native_drivers()};
+        }
+        my %seen_drv;
+        @blacklist = grep { !$seen_drv{$_}++ } sort @blacklist;
+        my $bl_content = "# Managed by pve-gpu-manager - blacklist GPU drivers for VFIO binding\n";
+        $bl_content .= "blacklist $_\n" for @blacklist;
+        file_set_contents($VFIO_MODPROBE, $bl_content);
         file_set_contents($VFIO_MODULES,
             "vfio\nvfio_iommu_type1\nvfio-pci\n");
     } else {
@@ -1509,7 +1214,7 @@ __PACKAGE__->register_method({
         my $persist = defined($param->{persist}) ? $param->{persist} : 1;
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported GPU\n" unless defined $rec;
 
         my $current_driver = $rec->{driver} // '';
 
@@ -1614,13 +1319,14 @@ __PACKAGE__->register_method({
         my $bdf = $param->{bdf};
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported GPU\n" unless defined $rec;
 
         my $num_vfs = int($rec->{sriov_numvfs});
         return [] if $num_vfs == 0;
 
         my $family = $rec->{family};
         my $card   = $rec->{drm_card};
+        my $vid    = $rec->{vendor_id};
         my $tiles  = int($rec->{tiles});
 
         # Get VM assignments
@@ -1639,7 +1345,7 @@ __PACKAGE__->register_method({
             # Read quota from tile 0 as representative
             my %quotas;
             if (defined $card && $card ne '') {
-                my $paths = get_vf_paths($family, $card, $bdf, $vf, 0);
+                my $paths = get_vf_paths($family, $card, $bdf, $vf, 0, $vid);
                 $quotas{lmem_quota}         = int(read_sysfs($paths->{lmem_quota})         // 0);
                 $quotas{ggtt_quota}         = int(read_sysfs($paths->{ggtt_quota})         // 0);
                 $quotas{exec_quantum_ms}    = int(read_sysfs($paths->{exec_quantum_ms})    // 0);
@@ -1692,7 +1398,7 @@ __PACKAGE__->register_method({
         my $vf_index = int($param->{vfIndex});
 
         my $rec = _collect_device($bdf, 0);
-        die "Device '$bdf' not found or not a supported Intel GPU\n" unless defined $rec;
+        die "Device '$bdf' not found or not a supported GPU\n" unless defined $rec;
 
         my $num_vfs = int($rec->{sriov_numvfs});
         die "No VFs are currently active on device '$bdf'\n" if $num_vfs == 0;
@@ -1701,6 +1407,7 @@ __PACKAGE__->register_method({
 
         my $family = $rec->{family};
         my $card   = $rec->{drm_card};
+        my $vid    = $rec->{vendor_id};
         my $tiles  = int($rec->{tiles});
 
         my $virtfn_link = sysfs_path(
@@ -1714,7 +1421,7 @@ __PACKAGE__->register_method({
         for my $t (0 .. ($tiles - 1)) {
             my %q = (tile => $t);
             if (defined $card && $card ne '') {
-                my $paths = get_vf_paths($family, $card, $bdf, $vf_index, $t);
+                my $paths = get_vf_paths($family, $card, $bdf, $vf_index, $t, $vid);
                 $q{lmem_quota}         = int(read_sysfs($paths->{lmem_quota})         // 0);
                 $q{ggtt_quota}         = int(read_sysfs($paths->{ggtt_quota})         // 0);
                 $q{exec_quantum_ms}    = int(read_sysfs($paths->{exec_quantum_ms})    // 0);

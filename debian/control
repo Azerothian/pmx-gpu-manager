@@ -8,7 +8,8 @@ Standards-Version: 4.5.1
 Package: pve-gpu-manager
 Architecture: all
 Depends: pve-manager (>= 8.0), perl, libpve-common-perl, pciutils, linux-perf, ${misc:Depends}
+Suggests: nvidia-smi
 Description: GPU Manager for Proxmox VE
  Provides discovery, monitoring, and SR-IOV virtual function management
- for Intel discrete GPUs (Flex/ATS-M, Ponte Vecchio, Battlemage) in
- Proxmox VE. Includes a web UI tab, REST API, and boot persistence.
+ for discrete GPUs (Intel Flex/ATS-M, Ponte Vecchio, Battlemage; NVIDIA)
+ in Proxmox VE. Includes a web UI tab, REST API, and boot persistence.
