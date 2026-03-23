@@ -23,7 +23,7 @@ echo "=== Building .deb package ==="
 cd "$PROJECT_ROOT"
 make deb
 
-DEB=$(find "$PROJECT_ROOT" -maxdepth 2 -name 'pve-xpu-manager_*.deb' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2)
+DEB=$(find "$PROJECT_ROOT" -maxdepth 2 -name 'pve-gpu-manager_*.deb' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2)
 
 if [ -z "$DEB" ]; then
     echo "ERROR: No .deb file found after build"
@@ -44,9 +44,9 @@ scmd "bash /tmp/setup-fake-sysfs.sh"
 
 echo "=== Configuring pvedaemon with fake sysfs ==="
 scmd "mkdir -p /etc/systemd/system/pvedaemon.service.d"
-scmd "cat > /etc/systemd/system/pvedaemon.service.d/fake-xpu.conf << 'EOF'
+scmd "cat > /etc/systemd/system/pvedaemon.service.d/fake-gpu.conf << 'EOF'
 [Service]
-Environment=PVE_XPU_SYSFS_ROOT=/tmp/fake-xpu
+Environment=PVE_GPU_SYSFS_ROOT=/tmp/fake-gpu
 EOF"
 scmd "systemctl daemon-reload"
 scmd "systemctl restart pvedaemon"

@@ -4,7 +4,7 @@ use warnings;
 use Test::More tests => 18;
 use File::Temp qw(tempfile);
 
-# Standalone parse_ini logic copied from XPU.pm parse_ini_config()
+# Standalone parse_ini logic copied from GPU.pm parse_ini_config()
 sub parse_ini {
     my ($path) = @_;
     my %data;

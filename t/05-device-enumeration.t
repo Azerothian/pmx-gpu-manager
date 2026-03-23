@@ -98,7 +98,7 @@ mkfile("$ROOT/proc/cpuinfo", "flags\t\t: fpu vme vmx sse\n");
 # ---------------------------------------------------------------------------
 # Set sysfs root and load the module
 # ---------------------------------------------------------------------------
-$ENV{PVE_XPU_SYSFS_ROOT} = $ROOT;
+$ENV{PVE_GPU_SYSFS_ROOT} = $ROOT;
 
 # We need to load the module; it depends on PVE::RESTHandler etc.
 # Instead, we test the logic directly using the same patterns.

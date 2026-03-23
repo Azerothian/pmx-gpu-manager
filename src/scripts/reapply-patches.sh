@@ -8,8 +8,8 @@ set -eu
 INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
 NODES_PM="/usr/share/perl5/PVE/API2/Nodes.pm"
 SCRIPT_TAG='<script src="/pve2/js/pve-gpu-plugin.js"></script>'
-USE_STMT='use PVE::API2::Hardware::XPU;'
-REGISTER_STMT="PVE::API2::Nodes->register_method({ name => 'xpu', path => 'xpu', method => 'GET', description => 'XPU hardware management', permissions => { check => ['perm', '/nodes/{node}', ['Sys.Audit']] }, parameters => { additionalProperties => 0, properties => { node => get_standard_option('pve-node') } }, returns => { type => 'array', items => { type => 'object' } }, code => sub { return PVE::API2::Hardware::XPU->index(\$_[0]); } });"
+USE_STMT='use PVE::API2::Hardware::GPU;'
+REGISTER_STMT="PVE::API2::Nodes->register_method({ name => 'gpu', path => 'gpu', method => 'GET', description => 'GPU hardware management', permissions => { check => ['perm', '/nodes/{node}', ['Sys.Audit']] }, parameters => { additionalProperties => 0, properties => { node => get_standard_option('pve-node') } }, returns => { type => 'array', items => { type => 'object' } }, code => sub { return PVE::API2::Hardware::GPU->index(\$_[0]); } });"
 
 APPLIED=0
 
@@ -89,7 +89,7 @@ patch_nodes_pm_register() {
     fi
 
     # Check if already patched
-    if grep -qF "PVE::API2::Hardware::XPU" "$NODES_PM"; then
+    if grep -qF "PVE::API2::Hardware::GPU" "$NODES_PM"; then
         log "Nodes.pm register_method already present, skipping"
         return 0
     fi

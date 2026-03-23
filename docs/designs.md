@@ -1,12 +1,12 @@
-# PVE XPU/GPU Manager — UI Mockups & Workflow Diagrams
+# PVE GPU/GPU Manager — UI Mockups & Workflow Diagrams
 
 ## 1. UI Mockups
 
-### 1.1 Node Tab — XPU/GPU Main View
+### 1.1 Node Tab — GPU/GPU Main View
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  Datacenter > node1 > XPU/GPU                                    [fa-microchip] │
+│  Datacenter > node1 > GPU/GPU                                    [fa-microchip] │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  SR-IOV Prerequisites                                                       │
@@ -158,7 +158,7 @@
 
 ```mermaid
 flowchart TD
-    A[API Request: GET /hardware/xpu] --> B[Authenticate & authorize<br/>Sys.Audit on /nodes/node]
+    A[API Request: GET /hardware/gpu] --> B[Authenticate & authorize<br/>Sys.Audit on /nodes/node]
     B --> C[Call PVE::SysFSTools::lspci<br/>or parse lspci -Dnn]
     C --> D[Filter: vendor=0x8086<br/>class=0x03xx]
     D --> E{Any devices<br/>found?}
@@ -177,7 +177,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[API Request: GET /hardware/xpu/BDF/sriov] --> B[Authenticate & authorize]
+    A[API Request: GET /hardware/gpu/BDF/sriov] --> B[Authenticate & authorize]
     B --> C[Validate BDF format]
     C --> D[Check 1: CPU Virtualization]
     D --> D1[Parse /proc/cpuinfo flags]
@@ -209,14 +209,14 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[API Request: POST /hardware/xpu/BDF/sriov] --> B[Authenticate & authorize<br/>Sys.Modify on /nodes/node]
+    A[API Request: POST /hardware/gpu/BDF/sriov] --> B[Authenticate & authorize<br/>Sys.Modify on /nodes/node]
     B --> C[Run SR-IOV prechecks]
     C --> C1{All pass?}
     C1 -- No --> C2[Return 400:<br/>Prechecks failed]
     C1 -- Yes --> D{VFs already<br/>active?}
     D -- Yes --> D1[Return 409:<br/>Remove existing VFs first]
     D -- No --> E{Template<br/>specified?}
-    E -- Yes --> F[Load template values<br/>from xpu-vf-templates.conf]
+    E -- Yes --> F[Load template values<br/>from gpu-vf-templates.conf]
     F --> G[Apply per-field overrides<br/>from request params]
     E -- No --> G1{Manual quotas<br/>provided?}
     G1 -- Yes --> G
@@ -236,7 +236,7 @@ flowchart TD
     O -- No --> P[Rollback: write 0<br/>to sriov_numvfs]
     P --> P1[Return 500:<br/>Creation failed]
     O -- Yes --> Q{Persist<br/>requested?}
-    Q -- Yes --> R[Write/update<br/>xpu-sriov.conf]
+    Q -- Yes --> R[Write/update<br/>gpu-sriov.conf]
     Q -- No --> S[Return created VF list]
     R --> S
 ```
@@ -245,7 +245,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[API Request: DELETE /hardware/xpu/BDF/sriov] --> B[Authenticate & authorize<br/>Sys.Modify on /nodes/node]
+    A[API Request: DELETE /hardware/gpu/BDF/sriov] --> B[Authenticate & authorize<br/>Sys.Modify on /nodes/node]
     B --> C[Validate BDF, resolve DRM card]
     C --> D[List current VFs]
     D --> E[Check VF-to-VM assignments<br/>in PVE config]
@@ -255,7 +255,7 @@ flowchart TD
     H --> I{Verify VF<br/>count = 0?}
     I -- No --> J[Return 500:<br/>Removal failed]
     I -- Yes --> K{remove_persist<br/>= true?}
-    K -- Yes --> L[Remove device section<br/>from xpu-sriov.conf]
+    K -- Yes --> L[Remove device section<br/>from gpu-sriov.conf]
     K -- No --> M[Return success]
     L --> M
 ```
@@ -264,13 +264,13 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[System Boot] --> B[systemd starts<br/>pve-xpu-sriov.service]
+    A[System Boot] --> B[systemd starts<br/>pve-gpu-sriov.service]
     B --> C[apply-sriov-config.sh]
     C --> D[Poll for /sys/class/drm/card*<br/>timeout: 60s]
     D --> D1{DRM devices<br/>appeared?}
     D1 -- No --> D2[Log error: timeout<br/>waiting for DRM]
     D2 --> Z[Exit 0<br/>Never block boot]
-    D1 -- Yes --> E[Parse /etc/pve/local/<br/>xpu-sriov.conf]
+    D1 -- Yes --> E[Parse /etc/pve/local/<br/>gpu-sriov.conf]
     E --> F[For each device section<br/>where persist=1]
     F --> G[Resolve BDF → DRM card]
     G --> G1{BDF<br/>found?}
@@ -281,7 +281,7 @@ flowchart TD
     H1 -- Yes --> J[Log warning:<br/>BDF changed]
     J --> K
     G1 -- Yes --> K{Template<br/>specified?}
-    K -- Yes --> L[Load template from<br/>xpu-vf-templates.conf]
+    K -- Yes --> L[Load template from<br/>gpu-vf-templates.conf]
     L --> M[Apply per-VF overrides]
     K -- No --> M
     M --> N[Write resource quotas<br/>to sysfs/debugfs]
@@ -317,7 +317,7 @@ flowchart TD
     G1 -- Yes --> H{proxyto<br/>= node?}
     H -- Yes --> I[Forward request to<br/>target node's pvedaemon]
     H -- No --> J[Execute locally]
-    I --> K[XPU.pm handler<br/>executes as root]
+    I --> K[GPU.pm handler<br/>executes as root]
     J --> K
     K --> L[Read/write sysfs]
     L --> M[Return JSON response]
@@ -327,16 +327,16 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[dpkg -i pve-xpu-manager.deb] --> B[Unpack files to<br/>target paths]
+    A[dpkg -i pve-gpu-manager.deb] --> B[Unpack files to<br/>target paths]
     B --> C[postinst script]
-    C --> D[Backup originals:<br/>index.html.tpl.pre-xpu<br/>Nodes.pm.pre-xpu]
+    C --> D[Backup originals:<br/>index.html.tpl.pre-gpu<br/>Nodes.pm.pre-gpu]
     D --> E[Patch index.html.tpl:<br/>insert script tag]
-    E --> F[Patch Nodes.pm:<br/>register XPU sub-route]
-    F --> G[systemctl enable --now<br/>pve-xpu-sriov.service]
+    E --> F[Patch Nodes.pm:<br/>register GPU sub-route]
+    F --> G[systemctl enable --now<br/>pve-gpu-sriov.service]
     G --> H[systemctl restart<br/>pveproxy.service]
     H --> I[Installation complete]
 
-    J[pve-manager upgrade] --> K[APT hook triggers<br/>99-pve-xpu-reapply]
+    J[pve-manager upgrade] --> K[APT hook triggers<br/>99-pve-gpu-reapply]
     K --> L[reapply-patches.sh]
     L --> L1{Patches already<br/>applied?}
     L1 -- Yes --> L2[No action needed]
@@ -350,13 +350,13 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[apt remove pve-xpu-manager] --> B[prerm script]
-    B --> C[Restore backups:<br/>index.html.tpl.pre-xpu → index.html.tpl<br/>Nodes.pm.pre-xpu → Nodes.pm]
-    C --> D[systemctl disable<br/>pve-xpu-sriov.service]
+    A[apt remove pve-gpu-manager] --> B[prerm script]
+    B --> C[Restore backups:<br/>index.html.tpl.pre-gpu → index.html.tpl<br/>Nodes.pm.pre-gpu → Nodes.pm]
+    C --> D[systemctl disable<br/>pve-gpu-sriov.service]
     D --> E[systemctl restart<br/>pveproxy.service]
     E --> F[Remove package files]
     F --> G{Purge?}
-    G -- Yes --> H[postrm: remove<br/>xpu-sriov.conf<br/>xpu-vf-templates.conf<br/>*.pre-xpu backups]
+    G -- Yes --> H[postrm: remove<br/>gpu-sriov.conf<br/>gpu-vf-templates.conf<br/>*.pre-gpu backups]
     G -- No --> I[Config files retained]
 ```
 
@@ -364,30 +364,30 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[PVE.node.Config] --> B[XpuManager Tab<br/>fa-microchip]
-    B --> C[XpuDeviceGrid]
+    A[PVE.node.Config] --> B[GpuManager Tab<br/>fa-microchip]
+    B --> C[GpuDeviceGrid]
     B --> D[SriovPrecheckBar]
 
-    C -- row select --> E[XpuDeviceDetail]
+    C -- row select --> E[GpuDeviceDetail]
     E --> F[PropertiesCard]
     E --> G[TelemetryCard<br/>auto-refresh 10s]
-    E --> H[XpuSriovPanel]
+    E --> H[GpuSriovPanel]
 
     H --> I[VF Grid]
     H --> J[Create VFs Button]
     H --> K[Remove VFs Button]
 
     J -- click --> L[CreateVfsDialog]
-    L -- submit --> M[POST /hardware/xpu/BDF/sriov]
+    L -- submit --> M[POST /hardware/gpu/BDF/sriov]
     M -- success --> N[Refresh VF Grid +<br/>Device Grid]
 
     K -- click --> O[RemoveVfsDialog]
-    O -- confirm --> P[DELETE /hardware/xpu/BDF/sriov]
+    O -- confirm --> P[DELETE /hardware/gpu/BDF/sriov]
     P -- success --> N
 
-    D -- load --> Q[GET /hardware/xpu/BDF/sriov]
-    C -- load --> R[GET /hardware/xpu<br/>auto-refresh 30s]
-    I -- load --> S[GET /hardware/xpu/BDF/vf]
+    D -- load --> Q[GET /hardware/gpu/BDF/sriov]
+    C -- load --> R[GET /hardware/gpu<br/>auto-refresh 30s]
+    I -- load --> S[GET /hardware/gpu/BDF/vf]
 ```
 
 ---
@@ -438,7 +438,7 @@ flowchart LR
         D --> F[/sys/.../tile*/gt_cur_freq_mhz]
     end
 
-    subgraph "XPU.pm (Perl)"
+    subgraph "GPU.pm (Perl)"
         B --> G[Read & convert<br/>÷ 1000 → °C]
         C --> H[Read & convert<br/>÷ 1000000 → W]
         E --> I[Read bytes<br/>compute % used]

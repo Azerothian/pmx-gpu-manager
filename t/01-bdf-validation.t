@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use Test::More tests => 12;
 
-# BDF validation regex as used in XPU.pm
+# BDF validation regex as used in GPU.pm
 my $BDF_RE = qr/^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$/;
 
 # --- Valid cases ---

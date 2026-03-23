@@ -5,7 +5,7 @@ set -e
 INDEX_TPL="/usr/share/pve-manager/index.html.tpl"
 HARDWARE_PM="/usr/share/perl5/PVE/API2/Hardware.pm"
 SCRIPT_TAG='<script src="/pve2/js/pve-gpu-plugin.js"></script>'
-USE_STMT='use PVE::API2::Hardware::XPU;'
+USE_STMT='use PVE::API2::Hardware::GPU;'
 
 APPLIED=0
 
@@ -51,7 +51,7 @@ patch_hardware_pm() {
         return 0
     fi
 
-    if grep -qF "PVE::API2::Hardware::XPU" "$HARDWARE_PM"; then
+    if grep -qF "PVE::API2::Hardware::GPU" "$HARDWARE_PM"; then
         log "Hardware.pm already patched"
         return 0
     fi
@@ -63,7 +63,7 @@ patch_hardware_pm() {
 
     # Insert use statement after other use PVE::API2::Hardware:: lines,
     # insert register_method after other register_method calls,
-    # and add { type => 'xpu' } to the index array
+    # and add { type => 'gpu' } to the index array
     awk '
         # Track where to insert the use statement
         /^use PVE::API2::Hardware::/ { last_use = NR }
@@ -81,14 +81,14 @@ patch_hardware_pm() {
             for (i = 1; i <= NR; i++) {
                 print lines[i]
                 if (i == last_use && !use_inserted) {
-                    print "use PVE::API2::Hardware::XPU;"
+                    print "use PVE::API2::Hardware::GPU;"
                     use_inserted = 1
                 }
                 if (i == last_register && !register_inserted) {
                     print ""
                     print "__PACKAGE__->register_method({"
-                    print "    subclass => \"PVE::API2::Hardware::XPU\","
-                    print "    path => '"'"'xpu'"'"',"
+                    print "    subclass => \"PVE::API2::Hardware::GPU\","
+                    print "    path => '"'"'gpu'"'"',"
                     print "});"
                     register_inserted = 1
                 }
@@ -96,10 +96,10 @@ patch_hardware_pm() {
         }
     ' "$HARDWARE_PM" > "$tmp"
 
-    # Also add { type => 'xpu' } to the index return array
+    # Also add { type => 'gpu' } to the index return array
     local tmp2
     tmp2=$(mktemp)
-    sed "s/{ type => 'usb' },/{ type => 'usb' },\n            { type => 'xpu' },/" "$tmp" > "$tmp2"
+    sed "s/{ type => 'usb' },/{ type => 'usb' },\n            { type => 'gpu' },/" "$tmp" > "$tmp2"
 
     mv "$tmp2" "$HARDWARE_PM"
     chmod 644 "$HARDWARE_PM"

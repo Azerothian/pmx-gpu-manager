@@ -365,7 +365,7 @@ Ext.define('PVE.grid.GpuDeviceGrid', {
         }
 
         Proxmox.Utils.API2Request({
-            url: '/nodes/' + encodeURIComponent(nodeName) + '/hardware/xpu',
+            url: '/nodes/' + encodeURIComponent(nodeName) + '/hardware/gpu',
             method: 'GET',
             success: function(response) {
                 var data = response.result && response.result.data;
@@ -407,7 +407,7 @@ Ext.define('PVE.grid.GpuDeviceGrid', {
 
                 Proxmox.Utils.API2Request({
                     url: '/nodes/' + encodeURIComponent(nodeName) +
-                         '/hardware/xpu/' + encodeURIComponent(bdf) + '/vfio',
+                         '/hardware/gpu/' + encodeURIComponent(bdf) + '/vfio',
                     method: 'POST',
                     params: { action: action, persist: 1 },
                     success: function(response) {
@@ -712,7 +712,7 @@ Ext.define('PVE.panel.GpuTelemetryCard', {
 
         Proxmox.Utils.API2Request({
             url: '/nodes/' + encodeURIComponent(nodeName) +
-                 '/hardware/xpu/' + encodeURIComponent(me.currentBdf),
+                 '/hardware/gpu/' + encodeURIComponent(me.currentBdf),
             method: 'GET',
             success: function(response) {
                 var data = response.result && response.result.data;
@@ -998,7 +998,7 @@ Ext.define('PVE.panel.GpuDriftBanner', {
         me.setLoading(true);
         Proxmox.Utils.API2Request({
             url: '/nodes/' + encodeURIComponent(nodeName) +
-                 '/hardware/xpu/' + encodeURIComponent(me.currentBdf) + '/sriov/apply',
+                 '/hardware/gpu/' + encodeURIComponent(me.currentBdf) + '/sriov/apply',
             method: 'POST',
             success: function() {
                 me.setLoading(false);
@@ -1411,7 +1411,7 @@ Ext.define('PVE.window.ModifyVfsDialog', {
         me.setLoading(true);
 
         var baseUrl = '/nodes/' + encodeURIComponent(nodeName) +
-                      '/hardware/xpu/' + encodeURIComponent(bdf) + '/sriov';
+                      '/hardware/gpu/' + encodeURIComponent(bdf) + '/sriov';
 
         var doPost = function() {
             var postParams = Ext.apply({ num_vfs: newNumVfs, persist: persist }, lmemParams);
@@ -1565,7 +1565,7 @@ Ext.define('PVE.panel.GpuSriovPanel', {
 
         Proxmox.Utils.API2Request({
             url: '/nodes/' + encodeURIComponent(nodeName) +
-                 '/hardware/xpu/' + encodeURIComponent(bdf) + '/sriov',
+                 '/hardware/gpu/' + encodeURIComponent(bdf) + '/sriov',
             method: 'GET',
             success: function(response) {
                 var data = response.result && response.result.data;
@@ -1609,7 +1609,7 @@ Ext.define('PVE.panel.GpuSriovPanel', {
 
         Proxmox.Utils.API2Request({
             url: '/nodes/' + encodeURIComponent(nodeName) +
-                 '/hardware/xpu/' + encodeURIComponent(bdf) + '/vf',
+                 '/hardware/gpu/' + encodeURIComponent(bdf) + '/vf',
             method: 'GET',
             success: function(response) {
                 var data = response.result && response.result.data;

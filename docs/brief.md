@@ -1,4 +1,4 @@
-# PVE XPU/GPU Manager Plugin — Design Brief
+# PVE GPU/GPU Manager Plugin — Design Brief
 
 ## 1. Project Overview
 
@@ -6,7 +6,7 @@ A Proxmox VE web UI plugin that provides per-host discovery, monitoring, and SR-
 
 **Target users**: Proxmox VE administrators running Intel data center GPUs who need to partition physical GPUs into virtual functions for VM/container passthrough.
 
-**Key principle**: Zero external dependencies — all hardware interaction is done natively via sysfs, lspci, and kernel interfaces. The Intel XPU Manager repository is used solely as a reference for understanding sysfs paths and device capabilities.
+**Key principle**: Zero external dependencies — all hardware interaction is done natively via sysfs, lspci, and kernel interfaces. The Intel GPU Manager repository is used solely as a reference for understanding sysfs paths and device capabilities.
 
 ---
 
@@ -26,25 +26,25 @@ A Proxmox VE web UI plugin that provides per-host discovery, monitoring, and SR-
 
 ### 3.1 Backend — Perl API Module
 
-A new Perl module `PVE::API2::Hardware::XPU` registered as a sub-route under `/nodes/{node}/hardware/xpu`.
+A new Perl module `PVE::API2::Hardware::GPU` registered as a sub-route under `/nodes/{node}/hardware/gpu`.
 
 Endpoints:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/nodes/{node}/hardware/xpu` | List all detected Intel GPUs |
-| `GET` | `/nodes/{node}/hardware/xpu/{bdf}` | Device detail (properties, telemetry) |
-| `GET` | `/nodes/{node}/hardware/xpu/{bdf}/sriov` | SR-IOV status and precheck results |
-| `POST` | `/nodes/{node}/hardware/xpu/{bdf}/sriov` | Create VFs (params: numVfs, lmemPerVf, persist) |
-| `DELETE` | `/nodes/{node}/hardware/xpu/{bdf}/sriov` | Remove all VFs |
-| `GET` | `/nodes/{node}/hardware/xpu/{bdf}/vf` | List VFs with resource allocations |
-| `GET` | `/nodes/{node}/hardware/xpu/{bdf}/vf/{vfIndex}` | VF detail and metrics |
+| `GET` | `/nodes/{node}/hardware/gpu` | List all detected Intel GPUs |
+| `GET` | `/nodes/{node}/hardware/gpu/{bdf}` | Device detail (properties, telemetry) |
+| `GET` | `/nodes/{node}/hardware/gpu/{bdf}/sriov` | SR-IOV status and precheck results |
+| `POST` | `/nodes/{node}/hardware/gpu/{bdf}/sriov` | Create VFs (params: numVfs, lmemPerVf, persist) |
+| `DELETE` | `/nodes/{node}/hardware/gpu/{bdf}/sriov` | Remove all VFs |
+| `GET` | `/nodes/{node}/hardware/gpu/{bdf}/vf` | List VFs with resource allocations |
+| `GET` | `/nodes/{node}/hardware/gpu/{bdf}/vf/{vfIndex}` | VF detail and metrics |
 
 All endpoints use `proxyto => 'node'` so they execute on the correct host in a cluster.
 
 ### 3.2 Frontend — ExtJS Panel
 
-A new tab `PVE.node.XpuManager` added to `PVE.node.Config` with:
+A new tab `PVE.node.GpuManager` added to `PVE.node.Config` with:
 
 - **Device grid** — lists all GPUs on the node (name, BDF, device ID, SR-IOV status, VF count)
 - **Device detail panel** — properties, temperature, utilization gauges
@@ -54,7 +54,7 @@ A new tab `PVE.node.XpuManager` added to `PVE.node.Config` with:
 
 ## 4. Native Hardware Interface
 
-All hardware interaction is implemented directly — no dependency on `xpumcli`, `libxpum`, or any external tool.
+All hardware interaction is implemented directly — no dependency on `gpumcli`, `libgpum`, or any external tool.
 
 ### 4.1 Device Enumeration
 
@@ -133,10 +133,10 @@ Read from sysfs per DRM card:
 
 ### 4.6 VF Config Templates
 
-A config file defining default resource allocations per device model and VF count, inspired by xpumanager's `vgpu.conf`:
+A config file defining default resource allocations per device model and VF count, inspired by gpumanager's `vgpu.conf`:
 
 ```ini
-# /etc/pve/local/xpu-vf-templates.conf
+# /etc/pve/local/gpu-vf-templates.conf
 
 [flex-56c0-4vf]
 device_ids = 0x56c0, 0x56c2
@@ -167,7 +167,7 @@ SR-IOV sysfs configuration is volatile — all VFs and resource quotas are lost 
 
 ### 5.1 Persistent Config Store
 
-Per-device configuration saved to `/etc/pve/local/xpu-sriov.conf`:
+Per-device configuration saved to `/etc/pve/local/gpu-sriov.conf`:
 
 ```ini
 [0000:03:00.0]
@@ -185,7 +185,7 @@ Devices are identified by **PCI slot path** (domain:bus:device.function). If a B
 
 ### 5.2 Systemd Boot Service
 
-`pve-xpu-sriov.service`:
+`pve-gpu-sriov.service`:
 
 ```ini
 [Unit]
@@ -197,7 +197,7 @@ DefaultDependencies=no
 
 [Service]
 Type=oneshot
-ExecStart=/usr/lib/pve-xpu/apply-sriov-config.sh
+ExecStart=/usr/lib/pve-gpu/apply-sriov-config.sh
 RemainAfterExit=yes
 StandardOutput=journal
 
@@ -207,7 +207,7 @@ WantedBy=multi-user.target
 
 The apply script:
 1. Waits for `/sys/class/drm/card*` to appear (with timeout)
-2. Reads `/etc/pve/local/xpu-sriov.conf`
+2. Reads `/etc/pve/local/gpu-sriov.conf`
 3. For each persisted device, resolves current BDF, writes resource quotas, then writes `sriov_numvfs`
 4. Logs success/failure per device to journal
 5. **Never blocks boot** — failures are logged but the service exits 0
@@ -226,30 +226,30 @@ The apply script:
 ### 6.1 File Layout (Architecture B — external JS + Perl module)
 
 ```
-/usr/share/perl5/PVE/API2/Hardware/XPU.pm          # Backend API
-/usr/share/pve-manager/js/pve-xpu-plugin.js         # Frontend ExtJS
-/usr/lib/pve-xpu/apply-sriov-config.sh              # Boot persistence script
-/etc/pve/local/xpu-vf-templates.conf                # VF config templates
-/etc/pve/local/xpu-sriov.conf                       # Persisted VF state
-/lib/systemd/system/pve-xpu-sriov.service           # Boot service
+/usr/share/perl5/PVE/API2/Hardware/GPU.pm          # Backend API
+/usr/share/pve-manager/js/pve-gpu-plugin.js         # Frontend ExtJS
+/usr/lib/pve-gpu/apply-sriov-config.sh              # Boot persistence script
+/etc/pve/local/gpu-vf-templates.conf                # VF config templates
+/etc/pve/local/gpu-sriov.conf                       # Persisted VF state
+/lib/systemd/system/pve-gpu-sriov.service           # Boot service
 ```
 
 ### 6.2 Integration Points (minimal patches)
 
 Only two files require patching:
 
-1. **`/usr/share/pve-manager/index.html.tpl`** — Add `<script>` tag for `pve-xpu-plugin.js`
-2. **`/usr/share/perl5/PVE/API2/Nodes.pm`** — Register XPU sub-route:
+1. **`/usr/share/pve-manager/index.html.tpl`** — Add `<script>` tag for `pve-gpu-plugin.js`
+2. **`/usr/share/perl5/PVE/API2/Nodes.pm`** — Register GPU sub-route:
    ```perl
    __PACKAGE__->register_method({
-       subclass => "PVE::API2::Hardware::XPU",
-       path => 'hardware/xpu',
+       subclass => "PVE::API2::Hardware::GPU",
+       path => 'hardware/gpu',
    });
    ```
 
 ### 6.3 UI Views
 
-**Node Tab — "XPU/GPU"** (icon: `fa-microchip`)
+**Node Tab — "GPU/GPU"** (icon: `fa-microchip`)
 
 - Top: SR-IOV precheck status bar (green/red indicators for VMX, IOMMU, SR-IOV BIOS)
 - Main: Device grid table
@@ -276,7 +276,7 @@ Only two files require patching:
 
 ## 7. Packaging & Distribution
 
-Debian package `pve-xpu-manager`:
+Debian package `pve-gpu-manager`:
 
 ```
 debian/
@@ -289,7 +289,7 @@ debian/
 ```
 
 - `postinst` backs up original files before patching
-- Apt hook at `/etc/apt/apt.conf.d/99-pve-xpu-reapply` re-applies patches after `pve-manager` upgrades
+- Apt hook at `/etc/apt/apt.conf.d/99-pve-gpu-reapply` re-applies patches after `pve-manager` upgrades
 - Version constraints ensure compatibility with tested Proxmox releases
 
 ---
@@ -298,7 +298,7 @@ debian/
 
 | Resource | URL / Path |
 |----------|-----------|
-| Intel XPU Manager (sysfs reference) | `../xpumanager` — `/core/src/vgpu/vgpu_manager.cpp`, `/core/resources/config/vgpu.conf` |
+| Intel GPU Manager (sysfs reference) | `../gpumanager` — `/core/src/vgpu/vgpu_manager.cpp`, `/core/resources/config/vgpu.conf` |
 | PVE-mods (UI patching pattern) | https://github.com/Meliox/PVE-mods |
 | ProxMenux (hardware detection patterns) | https://github.com/MacRimi/ProxMenux |
 | Proxmox GPU Dashboard (UI widget examples) | https://github.com/en4ble1337/proxmox-gpu-dashboard |

@@ -1,4 +1,4 @@
-package PVE::API2::Hardware::XPU;
+package PVE::API2::Hardware::GPU;
 
 use strict;
 use warnings;
@@ -27,15 +27,15 @@ sub get_vendor_plugin {
 }
 
 # Load vendor plugins (they register themselves on use)
-use PVE::API2::Hardware::XPU::Intel;
-use PVE::API2::Hardware::XPU::Nvidia;
+use PVE::API2::Hardware::GPU::Intel;
+use PVE::API2::Hardware::GPU::Nvidia;
 
 # BDF format regex
 my $BDF_RE = '[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]';
 
 # Config paths
-my $XPU_SRIOV_CONF      = '/etc/pve/local/gpu-sriov.conf';
-my $XPU_VF_TEMPLATES    = '/etc/pve/local/gpu-vf-templates.conf';
+my $GPU_SRIOV_CONF      = '/etc/pve/local/gpu-sriov.conf';
+my $GPU_VF_TEMPLATES    = '/etc/pve/local/gpu-vf-templates.conf';
 
 # ---------------------------------------------------------------------------
 # Fake sysfs helper
@@ -506,7 +506,7 @@ sub _collect_device {
     my $device_name = _get_device_name($bdf, $norm_device_id, $vendor_id);
 
     # Check persistence
-    my $persist_config = parse_ini_config($XPU_SRIOV_CONF);
+    my $persist_config = parse_ini_config($GPU_SRIOV_CONF);
     my $persisted = (exists $persist_config->{$bdf}) ? \1 : \0;
 
     my $sriov_capable = _has_sriov_cap($bdf) ? \1 : \0;
@@ -661,7 +661,7 @@ __PACKAGE__->register_method({
     name        => 'sriov_status',
     path        => '{bdf}/sriov',
     method      => 'GET',
-    description => 'Get SR-IOV status, pre-flight checks, and available resources for an XPU.',
+    description => 'Get SR-IOV status, pre-flight checks, and available resources for a GPU.',
     permissions => {
         check => ['perm', '/nodes/{node}', ['Sys.Audit']],
     },
@@ -700,7 +700,7 @@ __PACKAGE__->register_method({
         }
 
         # Load persisted config
-        my $persist_config = parse_ini_config($XPU_SRIOV_CONF);
+        my $persist_config = parse_ini_config($GPU_SRIOV_CONF);
         my $persisted_section = $persist_config->{$bdf};
 
         # Drift detection
@@ -823,9 +823,9 @@ __PACKAGE__->register_method({
         if ($num_vfs == 0) {
             eval { write_sysfs("/sys/bus/pci/devices/$bdf/sriov_numvfs", 0) };
             die "Failed to remove VFs: $@\n" if $@;
-            my $config = parse_ini_config($XPU_SRIOV_CONF);
+            my $config = parse_ini_config($GPU_SRIOV_CONF);
             delete $config->{$bdf};
-            write_ini_config($XPU_SRIOV_CONF, $config);
+            write_ini_config($GPU_SRIOV_CONF, $config);
             return { removed => 1 };
         }
 
@@ -849,9 +849,9 @@ __PACKAGE__->register_method({
         my ($lmem_per_vf, $ggtt_per_vf, $contexts_per_vf, $doorbells_per_vf);
 
         if (defined $param->{template}) {
-            my $templates = parse_ini_config($XPU_VF_TEMPLATES);
+            my $templates = parse_ini_config($GPU_VF_TEMPLATES);
             my $tmpl = $templates->{$param->{template}};
-            die "Template '$param->{template}' not found in $XPU_VF_TEMPLATES\n"
+            die "Template '$param->{template}' not found in $GPU_VF_TEMPLATES\n"
                 unless defined $tmpl;
             $lmem_per_vf      = $tmpl->{lmem_per_vf};
             $ggtt_per_vf      = $tmpl->{ggtt_per_vf};
@@ -1018,7 +1018,7 @@ __PACKAGE__->register_method({
 
         # Persist configuration
         if ($do_persist) {
-            my $config = parse_ini_config($XPU_SRIOV_CONF);
+            my $config = parse_ini_config($GPU_SRIOV_CONF);
             $config->{$bdf} = {
                 persist            => 1,
                 num_vfs            => $num_vfs,
@@ -1032,7 +1032,7 @@ __PACKAGE__->register_method({
                 family             => $family,
                 device_id          => $rec->{device_id},
             };
-            write_ini_config($XPU_SRIOV_CONF, $config);
+            write_ini_config($GPU_SRIOV_CONF, $config);
         }
 
         # Build return list
@@ -1111,10 +1111,10 @@ __PACKAGE__->register_method({
         die "Failed to remove VFs: sriov_numvfs still reports $after\n" if $after != 0;
 
         if ($param->{remove_persist}) {
-            my $config = parse_ini_config($XPU_SRIOV_CONF);
+            my $config = parse_ini_config($GPU_SRIOV_CONF);
             if (exists $config->{$bdf}) {
                 delete $config->{$bdf};
-                write_ini_config($XPU_SRIOV_CONF, $config);
+                write_ini_config($GPU_SRIOV_CONF, $config);
             }
         }
 

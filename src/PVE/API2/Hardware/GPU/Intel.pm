@@ -1,4 +1,4 @@
-package PVE::API2::Hardware::XPU::Intel;
+package PVE::API2::Hardware::GPU::Intel;
 
 use strict;
 use warnings;
@@ -95,7 +95,7 @@ sub read_telemetry {
     };
 
     # Temperature: read all hwmon temp sensors, match by label
-    my $hwmon_base = PVE::API2::Hardware::XPU::sysfs_path("/sys/class/drm/$card/device/hwmon");
+    my $hwmon_base = PVE::API2::Hardware::GPU::sysfs_path("/sys/class/drm/$card/device/hwmon");
     my @hwmon_dirs = bsd_glob("$hwmon_base/hwmon*");
     my $got_labeled_temp = 0;
     for my $hwmon_dir (@hwmon_dirs) {
@@ -206,7 +206,7 @@ sub read_telemetry {
     # Clock rate: xe driver uses tile0/gt0/freq0/ (act_freq + max_freq)
     # i915 uses device/tile*/gt_cur_freq_mhz
     if (defined $bdf) {
-        my $card_dev = PVE::API2::Hardware::XPU::sysfs_path("/sys/class/drm/$card/device");
+        my $card_dev = PVE::API2::Hardware::GPU::sysfs_path("/sys/class/drm/$card/device");
         # xe driver path
         my $freq_base = "$card_dev/tile0/gt0/freq0";
         if (-d $freq_base) {
@@ -232,7 +232,7 @@ sub read_telemetry {
 
     # VRAM: from debugfs vram0_mm (size + usage in bytes)
     if (defined $bdf) {
-        my $vram_mm_path = PVE::API2::Hardware::XPU::sysfs_path("/sys/kernel/debug/dri/$bdf/vram0_mm");
+        my $vram_mm_path = PVE::API2::Hardware::GPU::sysfs_path("/sys/kernel/debug/dri/$bdf/vram0_mm");
         if (open(my $fh, '<', $vram_mm_path)) {
             my $total_bytes = 0;
             while (my $line = <$fh>) {
@@ -246,7 +246,7 @@ sub read_telemetry {
             close($fh);
 
             # Subtract PF lmem_spare (reserved for PF, not provisionable to VFs)
-            my $spare_path = PVE::API2::Hardware::XPU::sysfs_path("/sys/kernel/debug/dri/$bdf/gt0/pf/lmem_spare");
+            my $spare_path = PVE::API2::Hardware::GPU::sysfs_path("/sys/kernel/debug/dri/$bdf/gt0/pf/lmem_spare");
             if (open(my $sfh, '<', $spare_path)) {
                 my $spare = <$sfh>;
                 close($sfh);
@@ -262,7 +262,7 @@ sub read_telemetry {
     # Fallback: LMEM free from sysfs iov path (i915 driver)
     if (!defined $result->{lmem_total_mb}) {
         my $lmem_path = "/sys/class/drm/$card/iov/pf/gt0/available/lmem_free";
-        my $lmem_val  = PVE::API2::Hardware::XPU::read_sysfs($lmem_path);
+        my $lmem_val  = PVE::API2::Hardware::GPU::read_sysfs($lmem_path);
         if (defined $lmem_val && $lmem_val =~ /^\d+$/) {
             $result->{lmem_total_mb} = int($lmem_val / (1024 * 1024));
         }
@@ -301,7 +301,7 @@ sub read_telemetry {
 
     # Throttle detection
     if (defined $bdf) {
-        my $card_dev = PVE::API2::Hardware::XPU::sysfs_path("/sys/class/drm/$card/device");
+        my $card_dev = PVE::API2::Hardware::GPU::sysfs_path("/sys/class/drm/$card/device");
         my $throttle_path = "$card_dev/tile0/gt0/freq0/throttle";
         if (open(my $fh, '<', $throttle_path)) {
             my $val = <$fh>;
@@ -363,7 +363,7 @@ sub get_vf_paths {
 # ---------------------------------------------------------------------------
 sub read_firmware_version {
     my ($class, $bdf) = @_;
-    my $guc_path = PVE::API2::Hardware::XPU::sysfs_path("/sys/kernel/debug/dri/$bdf/gt0/uc/guc_info");
+    my $guc_path = PVE::API2::Hardware::GPU::sysfs_path("/sys/kernel/debug/dri/$bdf/gt0/uc/guc_info");
     if (open(my $fh, '<', $guc_path)) {
         while (my $line = <$fh>) {
             if ($line =~ /found release version\s+([\d.]+)/) {
@@ -401,8 +401,8 @@ sub run_prechecks {
 }
 
 # ---------------------------------------------------------------------------
-# Register with XPU framework
+# Register with GPU framework
 # ---------------------------------------------------------------------------
-PVE::API2::Hardware::XPU::register_vendor('8086', __PACKAGE__);
+PVE::API2::Hardware::GPU::register_vendor('8086', __PACKAGE__);
 
 1;

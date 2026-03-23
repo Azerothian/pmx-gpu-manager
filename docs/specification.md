@@ -1,10 +1,10 @@
-# PVE XPU/GPU Manager Plugin — Technical Specification
+# PVE GPU/GPU Manager Plugin — Technical Specification
 
 ## 1. Introduction
 
 ### 1.1 Purpose
 
-This document specifies the design, interfaces, data models, and behavior of the PVE XPU/GPU Manager Plugin — a Proxmox VE extension that provides discovery, monitoring, and SR-IOV virtual function management for Intel discrete GPUs.
+This document specifies the design, interfaces, data models, and behavior of the PVE GPU/GPU Manager Plugin — a Proxmox VE extension that provides discovery, monitoring, and SR-IOV virtual function management for Intel discrete GPUs.
 
 ### 1.2 Scope
 
@@ -22,7 +22,7 @@ The plugin covers:
 
 | Constraint | Detail |
 |------------|--------|
-| No external dependencies | All hardware interaction via sysfs, `/proc`, `lspci`, and kernel interfaces. No `xpumcli` or `libxpum`. |
+| No external dependencies | All hardware interaction via sysfs, `/proc`, `lspci`, and kernel interfaces. No `gpumcli` or `libgpum`. |
 | Proxmox VE ≥ 8.0 | Requires PVE 8.x API and ExtJS 7 framework |
 | Kernel support | Requires i915 driver with SR-IOV patches (kernel ≥ 6.1 recommended) |
 | Perl runtime | Backend must use PVE's existing Perl stack (no Python/Go daemons) |
@@ -50,10 +50,10 @@ The plugin covers:
 ┌──────────────────────────────────────────────────────────┐
 │  Proxmox Web UI (Browser)                                │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │  pve-xpu-plugin.js (ExtJS Panel)                   │  │
-│  │  ├── XpuDeviceGrid                                 │  │
-│  │  ├── XpuDeviceDetail                               │  │
-│  │  └── XpuSriovPanel                                 │  │
+│  │  pve-gpu-plugin.js (ExtJS Panel)                   │  │
+│  │  ├── GpuDeviceGrid                                 │  │
+│  │  ├── GpuDeviceDetail                               │  │
+│  │  └── GpuSriovPanel                                 │  │
 │  └──────────────────┬─────────────────────────────────┘  │
 │                     │ REST API (HTTPS)                    │
 └─────────────────────┼────────────────────────────────────┘
@@ -61,7 +61,7 @@ The plugin covers:
 ┌─────────────────────┼────────────────────────────────────┐
 │  Proxmox VE Node    │                                    │
 │  ┌──────────────────▼─────────────────────────────────┐  │
-│  │  PVE::API2::Hardware::XPU (Perl Module)            │  │
+│  │  PVE::API2::Hardware::GPU (Perl Module)            │  │
 │  │  ├── list_devices()                                │  │
 │  │  ├── device_detail()                               │  │
 │  │  ├── sriov_status()                                │  │
@@ -81,7 +81,7 @@ The plugin covers:
 │  └────────────────────────────────────────────────────┘  │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │  pve-xpu-sriov.service (systemd oneshot)           │  │
+│  │  pve-gpu-sriov.service (systemd oneshot)           │  │
 │  │  └── apply-sriov-config.sh                         │  │
 │  └────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
@@ -91,19 +91,19 @@ The plugin covers:
 
 | Path | Type | Description |
 |------|------|-------------|
-| `/usr/share/perl5/PVE/API2/Hardware/XPU.pm` | Perl module | Backend API implementation |
-| `/usr/share/pve-manager/js/pve-xpu-plugin.js` | JavaScript | Frontend ExtJS plugin |
-| `/usr/lib/pve-xpu/apply-sriov-config.sh` | Shell script | Boot-time SR-IOV apply script |
-| `/etc/pve/local/xpu-vf-templates.conf` | INI config | VF resource allocation templates |
-| `/etc/pve/local/xpu-sriov.conf` | INI config | Persisted VF state per device |
-| `/lib/systemd/system/pve-xpu-sriov.service` | Systemd unit | Boot service for persistence |
+| `/usr/share/perl5/PVE/API2/Hardware/GPU.pm` | Perl module | Backend API implementation |
+| `/usr/share/pve-manager/js/pve-gpu-plugin.js` | JavaScript | Frontend ExtJS plugin |
+| `/usr/lib/pve-gpu/apply-sriov-config.sh` | Shell script | Boot-time SR-IOV apply script |
+| `/etc/pve/local/gpu-vf-templates.conf` | INI config | VF resource allocation templates |
+| `/etc/pve/local/gpu-sriov.conf` | INI config | Persisted VF state per device |
+| `/lib/systemd/system/pve-gpu-sriov.service` | Systemd unit | Boot service for persistence |
 
 ### 2.3 Integration Points
 
 Only two existing Proxmox files require patching:
 
 1. **`/usr/share/pve-manager/index.html.tpl`** — `<script>` tag insertion for plugin JS
-2. **`/usr/share/perl5/PVE/API2/Nodes.pm`** — Sub-route registration for `hardware/xpu`
+2. **`/usr/share/perl5/PVE/API2/Nodes.pm`** — Sub-route registration for `hardware/gpu`
 
 ---
 
@@ -111,7 +111,7 @@ Only two existing Proxmox files require patching:
 
 ### 3.1 GPU Device Record
 
-Returned by `GET /nodes/{node}/hardware/xpu` (list) and `GET /nodes/{node}/hardware/xpu/{bdf}` (detail).
+Returned by `GET /nodes/{node}/hardware/gpu` (list) and `GET /nodes/{node}/hardware/gpu/{bdf}` (detail).
 
 ```json
 {
@@ -175,11 +175,11 @@ Used for device identification and default configuration.
 | `bmg` | `0xe211`, `0xe212`, `0xe222` | 24 | 1 | Battlemage |
 | `bmg_12vf` | `0xe223` | 12 | 1 | Battlemage (reduced VF) |
 
-This map is defined as a constant hash in `XPU.pm` and referenced by device ID during enumeration.
+This map is defined as a constant hash in `GPU.pm` and referenced by device ID during enumeration.
 
 ### 3.3 SR-IOV Precheck Result
 
-Returned by `GET /nodes/{node}/hardware/xpu/{bdf}/sriov`.
+Returned by `GET /nodes/{node}/hardware/gpu/{bdf}/sriov`.
 
 ```json
 {
@@ -234,7 +234,7 @@ Returned by `GET /nodes/{node}/hardware/xpu/{bdf}/sriov`.
 
 ### 3.4 Virtual Function Record
 
-Returned by `GET /nodes/{node}/hardware/xpu/{bdf}/vf` (list) and `GET /nodes/{node}/hardware/xpu/{bdf}/vf/{vfIndex}` (detail).
+Returned by `GET /nodes/{node}/hardware/gpu/{bdf}/vf` (list) and `GET /nodes/{node}/hardware/gpu/{bdf}/vf/{vfIndex}` (detail).
 
 ```json
 {
@@ -272,7 +272,7 @@ Returned by `GET /nodes/{node}/hardware/xpu/{bdf}/vf` (list) and `GET /nodes/{no
 
 ### 3.5 VF Template Configuration
 
-File: `/etc/pve/local/xpu-vf-templates.conf`
+File: `/etc/pve/local/gpu-vf-templates.conf`
 
 INI format with section-per-template.
 
@@ -297,7 +297,7 @@ drivers_autoprobe = 0               # 0 = don't auto-bind VFs to host driver
 
 ### 3.6 Persistent SR-IOV Configuration
 
-File: `/etc/pve/local/xpu-sriov.conf`
+File: `/etc/pve/local/gpu-sriov.conf`
 
 ```ini
 [0000:03:00.0]
@@ -318,12 +318,12 @@ ggtt_quota = 2013265920
 
 ## 4. API Specification
 
-All endpoints are registered under the `PVE::API2::Hardware::XPU` module with `proxyto => 'node'`.
+All endpoints are registered under the `PVE::API2::Hardware::GPU` module with `proxyto => 'node'`.
 
 ### 4.1 List Devices
 
 ```
-GET /api2/json/nodes/{node}/hardware/xpu
+GET /api2/json/nodes/{node}/hardware/gpu
 ```
 
 **Parameters:** None
@@ -345,7 +345,7 @@ GET /api2/json/nodes/{node}/hardware/xpu
 ### 4.2 Device Detail
 
 ```
-GET /api2/json/nodes/{node}/hardware/xpu/{bdf}
+GET /api2/json/nodes/{node}/hardware/gpu/{bdf}
 ```
 
 **Parameters:**
@@ -370,7 +370,7 @@ GET /api2/json/nodes/{node}/hardware/xpu/{bdf}
 ### 4.3 SR-IOV Status
 
 ```
-GET /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
+GET /api2/json/nodes/{node}/hardware/gpu/{bdf}/sriov
 ```
 
 **Parameters:**
@@ -390,7 +390,7 @@ GET /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
 ### 4.4 Create Virtual Functions
 
 ```
-POST /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
+POST /api2/json/nodes/{node}/hardware/gpu/{bdf}/sriov
 ```
 
 **Parameters:**
@@ -399,7 +399,7 @@ POST /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
 |------|------|----------|---------|-------------|
 | `bdf` | string (path) | yes | — | PCI address |
 | `num_vfs` | integer | yes | — | Number of VFs to create (1 ≤ n ≤ `sriov_totalvfs`) |
-| `template` | string | no | — | Template name from `xpu-vf-templates.conf` |
+| `template` | string | no | — | Template name from `gpu-vf-templates.conf` |
 | `lmem_per_vf` | integer | no | — | LMEM bytes per VF (overrides template) |
 | `ggtt_per_vf` | integer | no | — | GGTT bytes per VF (overrides template) |
 | `contexts_per_vf` | integer | no | — | Contexts per VF (overrides template) |
@@ -425,7 +425,7 @@ POST /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
 6. Write `drivers_autoprobe` to `/sys/class/drm/{card}/device/sriov_drivers_autoprobe`
 7. Write `num_vfs` to `/sys/class/drm/{card}/device/sriov_numvfs`
 8. Verify VFs appeared: check `sriov_numvfs` reads back expected value
-9. If `persist` is true, write/update `/etc/pve/local/xpu-sriov.conf`
+9. If `persist` is true, write/update `/etc/pve/local/gpu-sriov.conf`
 10. Return created VF list
 
 **Error handling:**
@@ -446,7 +446,7 @@ The API module must detect family and select the appropriate write path. Debugfs
 ### 4.5 Remove Virtual Functions
 
 ```
-DELETE /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
+DELETE /api2/json/nodes/{node}/hardware/gpu/{bdf}/sriov
 ```
 
 **Parameters:**
@@ -460,7 +460,7 @@ DELETE /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
 1. Verify VFs are not assigned to running VMs (if any are, return 409)
 2. Write `0` to `/sys/class/drm/{card}/device/sriov_numvfs`
 3. Verify VF count is 0
-4. If `remove_persist` is true, remove the device section from `xpu-sriov.conf`
+4. If `remove_persist` is true, remove the device section from `gpu-sriov.conf`
 5. Return success
 
 **Errors:**
@@ -471,7 +471,7 @@ DELETE /api2/json/nodes/{node}/hardware/xpu/{bdf}/sriov
 ### 4.6 List Virtual Functions
 
 ```
-GET /api2/json/nodes/{node}/hardware/xpu/{bdf}/vf
+GET /api2/json/nodes/{node}/hardware/gpu/{bdf}/vf
 ```
 
 **Returns:** Array of VF records (§3.4).
@@ -487,7 +487,7 @@ GET /api2/json/nodes/{node}/hardware/xpu/{bdf}/vf
 ### 4.7 Virtual Function Detail
 
 ```
-GET /api2/json/nodes/{node}/hardware/xpu/{bdf}/vf/{vfIndex}
+GET /api2/json/nodes/{node}/hardware/gpu/{bdf}/vf/{vfIndex}
 ```
 
 **Parameters:**
@@ -565,16 +565,16 @@ GET /api2/json/nodes/{node}/hardware/xpu/{bdf}/vf/{vfIndex}
 ### 6.1 Plugin Registration
 
 The plugin JS file registers:
-- A new tab `xpugpu` in `PVE.node.Config` using `Ext.define('PVE.node.XpuManager', ...)`
-- Tab title: **"XPU/GPU"**
+- A new tab `gpu` in `PVE.node.Config` using `Ext.define('PVE.node.GpuManager', ...)`
+- Tab title: **"GPU/GPU"**
 - Tab icon: `fa-microchip`
 - Tab position: after "Disks" in the hardware section
 
-### 6.2 XpuDeviceGrid (Main View)
+### 6.2 GpuDeviceGrid (Main View)
 
 **Type:** `Ext.grid.Panel`
 
-**Store:** `Ext.data.Store` backed by `GET /nodes/{node}/hardware/xpu`, auto-refresh every 30 seconds.
+**Store:** `Ext.data.Store` backed by `GET /nodes/{node}/hardware/gpu`, auto-refresh every 30 seconds.
 
 **Columns:**
 
@@ -594,7 +594,7 @@ The plugin JS file registers:
 - Single-click selects a row and loads detail panel
 - Double-click opens the device detail in an expanded view
 
-### 6.3 XpuDeviceDetail (Detail Panel)
+### 6.3 GpuDeviceDetail (Detail Panel)
 
 **Type:** `Ext.panel.Panel` with card layout, shown below/beside the grid.
 
@@ -610,7 +610,7 @@ Key-value display of all device fields from §3.1 (excluding telemetry).
 - Power gauge: 0–max TDP range
 - Memory bar: used/total LMEM
 
-Auto-refresh every 10 seconds via `GET /nodes/{node}/hardware/xpu/{bdf}`.
+Auto-refresh every 10 seconds via `GET /nodes/{node}/hardware/gpu/{bdf}`.
 
 #### 6.3.3 SR-IOV Precheck Card
 
@@ -618,9 +618,9 @@ Status indicators for each precheck (§3.3):
 - Green checkmark icon + "Pass" text if `pass: true`
 - Red X icon + failure message if `pass: false`
 
-Loaded via `GET /nodes/{node}/hardware/xpu/{bdf}/sriov`.
+Loaded via `GET /nodes/{node}/hardware/gpu/{bdf}/sriov`.
 
-### 6.4 XpuSriovPanel (VF Management)
+### 6.4 GpuSriovPanel (VF Management)
 
 **Visible when:** Device is SR-IOV capable and all prechecks pass.
 
@@ -641,7 +641,7 @@ Loaded via `GET /nodes/{node}/hardware/xpu/{bdf}/sriov`.
 **Behavior:**
 - Selecting a template auto-populates resource fields (read-only)
 - Clearing template enables manual resource input
-- Submit sends `POST /nodes/{node}/hardware/xpu/{bdf}/sriov`
+- Submit sends `POST /nodes/{node}/hardware/gpu/{bdf}/sriov`
 - Shows progress bar during creation
 - On success, refreshes VF grid and device grid
 
@@ -676,7 +676,7 @@ Loaded via `GET /nodes/{node}/hardware/xpu/{bdf}/sriov`.
 
 ### 7.1 Systemd Service
 
-**Unit:** `pve-xpu-sriov.service`
+**Unit:** `pve-gpu-sriov.service`
 
 ```ini
 [Unit]
@@ -688,7 +688,7 @@ DefaultDependencies=no
 
 [Service]
 Type=oneshot
-ExecStart=/usr/lib/pve-xpu/apply-sriov-config.sh
+ExecStart=/usr/lib/pve-gpu/apply-sriov-config.sh
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal
@@ -699,15 +699,15 @@ WantedBy=multi-user.target
 
 ### 7.2 Apply Script Behavior
 
-`/usr/lib/pve-xpu/apply-sriov-config.sh`:
+`/usr/lib/pve-gpu/apply-sriov-config.sh`:
 
 1. **Wait for DRM devices** — poll `/sys/class/drm/card*` with 1-second intervals, timeout after 60 seconds
-2. **Parse config** — read `/etc/pve/local/xpu-sriov.conf`
+2. **Parse config** — read `/etc/pve/local/gpu-sriov.conf`
 3. **For each `[bdf]` section where `persist = 1`:**
    a. Resolve BDF → DRM card mapping
    b. If BDF not found, attempt fallback match by `device_id` + slot position; log warning
    c. If no match found, log error and continue to next device
-   d. If template specified, load values from `xpu-vf-templates.conf`
+   d. If template specified, load values from `gpu-vf-templates.conf`
    e. Apply per-VF overrides from `[bdf/vfN]` sections
    f. Write resource quotas to sysfs (standard or BMG debugfs paths)
    g. Write `drivers_autoprobe`
@@ -717,7 +717,7 @@ WantedBy=multi-user.target
 
 ### 7.3 Drift Detection
 
-The API `GET /nodes/{node}/hardware/xpu/{bdf}/sriov` response includes a `drift` field when:
+The API `GET /nodes/{node}/hardware/gpu/{bdf}/sriov` response includes a `drift` field when:
 - A persisted config exists but current runtime state differs (e.g., different VF count, different resource quotas)
 - The persisted BDF no longer matches any device
 
@@ -738,7 +738,7 @@ The frontend displays a warning banner when drift is detected.
 
 ### 8.1 Debian Package
 
-**Package name:** `pve-xpu-manager`
+**Package name:** `pve-gpu-manager`
 
 **Dependencies:**
 - `pve-manager (>= 8.0)`
@@ -753,33 +753,33 @@ The frontend displays a warning banner when drift is detected.
 #### postinst
 
 1. Back up original files:
-   - `cp /usr/share/pve-manager/index.html.tpl /usr/share/pve-manager/index.html.tpl.pre-xpu`
-   - `cp /usr/share/perl5/PVE/API2/Nodes.pm /usr/share/perl5/PVE/API2/Nodes.pm.pre-xpu`
+   - `cp /usr/share/pve-manager/index.html.tpl /usr/share/pve-manager/index.html.tpl.pre-gpu`
+   - `cp /usr/share/perl5/PVE/API2/Nodes.pm /usr/share/perl5/PVE/API2/Nodes.pm.pre-gpu`
 2. Apply patches:
-   - Insert `<script src="/pve2/js/pve-xpu-plugin.js"></script>` into `index.html.tpl`
-   - Insert `__PACKAGE__->register_method({ subclass => "PVE::API2::Hardware::XPU", path => 'hardware/xpu' });` into `Nodes.pm`
-3. Enable and start systemd service: `systemctl enable --now pve-xpu-sriov.service`
+   - Insert `<script src="/pve2/js/pve-gpu-plugin.js"></script>` into `index.html.tpl`
+   - Insert `__PACKAGE__->register_method({ subclass => "PVE::API2::Hardware::GPU", path => 'hardware/gpu' });` into `Nodes.pm`
+3. Enable and start systemd service: `systemctl enable --now pve-gpu-sriov.service`
 4. Restart `pveproxy`: `systemctl restart pveproxy.service`
 
 #### prerm
 
 1. Restore backup files:
-   - `cp /usr/share/pve-manager/index.html.tpl.pre-xpu /usr/share/pve-manager/index.html.tpl`
-   - `cp /usr/share/perl5/PVE/API2/Nodes.pm.pre-xpu /usr/share/perl5/PVE/API2/Nodes.pm`
-2. Disable systemd service: `systemctl disable pve-xpu-sriov.service`
+   - `cp /usr/share/pve-manager/index.html.tpl.pre-gpu /usr/share/pve-manager/index.html.tpl`
+   - `cp /usr/share/perl5/PVE/API2/Nodes.pm.pre-gpu /usr/share/perl5/PVE/API2/Nodes.pm`
+2. Disable systemd service: `systemctl disable pve-gpu-sriov.service`
 3. Restart `pveproxy`: `systemctl restart pveproxy.service`
 
 #### postrm (purge only)
 
-1. Remove config files: `/etc/pve/local/xpu-sriov.conf`, `/etc/pve/local/xpu-vf-templates.conf`
-2. Remove backup files: `*.pre-xpu`
+1. Remove config files: `/etc/pve/local/gpu-sriov.conf`, `/etc/pve/local/gpu-vf-templates.conf`
+2. Remove backup files: `*.pre-gpu`
 
 ### 8.3 Upgrade Safety
 
-An APT hook at `/etc/apt/apt.conf.d/99-pve-xpu-reapply` re-applies patches after `pve-manager` upgrades:
+An APT hook at `/etc/apt/apt.conf.d/99-pve-gpu-reapply` re-applies patches after `pve-manager` upgrades:
 
 ```
-DPkg::Post-Invoke { "if [ -x /usr/lib/pve-xpu/reapply-patches.sh ]; then /usr/lib/pve-xpu/reapply-patches.sh; fi"; };
+DPkg::Post-Invoke { "if [ -x /usr/lib/pve-gpu/reapply-patches.sh ]; then /usr/lib/pve-gpu/reapply-patches.sh; fi"; };
 ```
 
 The reapply script:
@@ -828,7 +828,7 @@ __PACKAGE__->register_method({
     permissions => {
         check => ['perm', '/nodes/{node}', ['Sys.Audit']],
     },
-    description => "List Intel XPU/GPU devices on the node.",
+    description => "List Intel GPU/GPU devices on the node.",
     # ...
 });
 
@@ -924,7 +924,7 @@ All parameters are validated using PVE's `PVE::JSONSchema` type system, which pr
 ### 10.3 Manual Verification
 
 - Install `.deb` package on a Proxmox host with an Intel GPU
-- Verify the "XPU/GPU" tab appears in the web UI
+- Verify the "GPU/GPU" tab appears in the web UI
 - Confirm device enumeration shows correct GPU info
 - Create VFs with a template and verify in `lspci`
 - Reboot and verify VFs are restored

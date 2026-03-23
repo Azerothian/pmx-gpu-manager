@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use Test::More tests => 41;
 
-# Device family map copied from XPU.pm
+# Device family map copied from GPU.pm
 my $DEVICE_FAMILIES = {
     '0x56c0' => { family => 'flex',     max_vfs => 31, tiles => 1 },
     '0x56c1' => { family => 'flex',     max_vfs => 31, tiles => 1 },
@@ -20,7 +20,7 @@ my $DEVICE_FAMILIES = {
     '0xe223' => { family => 'bmg_12vf', max_vfs => 12, tiles => 1 },
 };
 
-# Inline identify_device logic (mirrors XPU.pm)
+# Inline identify_device logic (mirrors GPU.pm)
 sub identify_device {
     my ($device_id) = @_;
     $device_id = lc($device_id);

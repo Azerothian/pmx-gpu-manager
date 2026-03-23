@@ -1,13 +1,13 @@
 #!/bin/bash
-# Creates a complete fake sysfs/procfs/debugfs tree for testing the PVE XPU plugin
+# Creates a complete fake sysfs/procfs/debugfs tree for testing the PVE GPU plugin
 # without requiring real Intel GPU hardware.
 #
 # Usage: setup-fake-sysfs.sh [--root DIR]
-#   --root DIR: root of fake tree (default: /tmp/fake-xpu)
+#   --root DIR: root of fake tree (default: /tmp/fake-gpu)
 
 set -e
 
-ROOT="/tmp/fake-xpu"
+ROOT="/tmp/fake-gpu"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -201,4 +201,4 @@ echo "  BMG    (0xe211)  BDF=0000:04:00.0  card=card1  render=renderD129  driver
 echo "    SR-IOV totalvfs=24"
 echo "    debugfs: $DBG  vram=25669140480 bytes"
 echo ""
-echo "Set PVE_XPU_SYSFS_ROOT=$ROOT to use this tree."
+echo "Set PVE_GPU_SYSFS_ROOT=$ROOT to use this tree."

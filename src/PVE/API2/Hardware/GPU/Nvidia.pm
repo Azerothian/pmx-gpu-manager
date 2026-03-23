@@ -1,4 +1,4 @@
-package PVE::API2::Hardware::XPU::Nvidia;
+package PVE::API2::Hardware::GPU::Nvidia;
 
 use strict;
 use warnings;
@@ -186,8 +186,8 @@ sub run_prechecks {
 }
 
 # ---------------------------------------------------------------------------
-# Register with XPU framework
+# Register with GPU framework
 # ---------------------------------------------------------------------------
-PVE::API2::Hardware::XPU::register_vendor('10de', __PACKAGE__);
+PVE::API2::Hardware::GPU::register_vendor('10de', __PACKAGE__);
 
 1;
