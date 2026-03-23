@@ -1041,8 +1041,8 @@ __PACKAGE__->register_method({
             },
             num_vfs => {
                 type        => 'integer',
-                description => 'Number of VFs to create',
-                minimum     => 1,
+                description => 'Number of VFs to create (0 to remove all)',
+                minimum     => 0,
             },
             template => {
                 type        => 'string',
